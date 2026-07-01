@@ -283,12 +283,12 @@ Winkel, Bewerk, Verw., Toevoegen*) while the product data stays exactly as enter
 | Table | Key columns |
 |---|---|
 | `products` | name, barcode, manufacturer, unit, auto_add_enabled, auto_add_threshold, auto_add_quantity, category_id → categories, store_id → stores |
-| `inventory` | product_id → products, location_id → locations, quantity |
+| `stock` | product_id → products, location_id → locations, quantity |
 | `shopping_list` | product_id → products, quantity |
 | `locations` | location (unique) |
 | `categories` | category (unique) |
 | `stores` | store (unique) |
-| `scanqueue` | barcode, action (Add/Use), state (New/Lookup/Unknown/Manual/Exist), name, manufacturer, description, unit, category, image_url, provider |
+| `scan_queue` | barcode, action (Add/Use), state (New/Lookup/Unknown/Manual/Exist), name, manufacturer, description, unit, category, image_url, provider |
 | `history` | timestamp, action, entity, entity_id, detail |
 
 Each table is published to a matching `sensor.vh_inventory_*` entity that the dashboard

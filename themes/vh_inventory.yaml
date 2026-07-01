@@ -1,5 +1,5 @@
-# VH-Woonkamer theme
-VH-Woonkamer:
+# VH-Inventory theme (ported from production 192.168.1.213 woonkamer-ts)
+VH-Inventory:
   vh-dashboard-gradient: "#000000"
   ha-card-background: "linear-gradient(180deg, #2d2d32 0%, #1e1e22 100%)"
   card-background-color: "#1e1e22"

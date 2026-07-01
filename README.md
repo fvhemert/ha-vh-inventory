@@ -13,7 +13,7 @@ entry, with a fully multi-language UI (English / Nederlands) and thermal-printer
 3. **Config** — merge the blocks from [`configuration.example.yaml`](configuration.example.yaml)
    into your `/config/configuration.yaml` (package link + the required `recorder:` exclude),
    then restart Home Assistant.
-4. **Theme** *(optional)* — copy `themes/vh_woonkamer.yaml` to `/config/themes/`.
+4. **Theme** *(optional)* — copy `themes/vh_inventory.yaml` to `/config/themes/`.
 5. **Dashboard** — on your workstation:
    ```bash
    pip install websocket-client
@@ -44,7 +44,7 @@ copying each folder to the matching location under `/config`:
 |---|---|---|
 | `pyscript/apps/vh_inventory/__init__.py` | `/config/pyscript/apps/vh_inventory/__init__.py` | Backend app: creates the DB, exposes `sensor.vh_inventory_*`, and all read/write services |
 | `packages/vh_inventory.yaml` | `/config/packages/vh_inventory.yaml` | The solution package: input helpers, scripts, template sensors |
-| `themes/vh_woonkamer.yaml` | `/config/themes/vh_woonkamer.yaml` | Optional dashboard theme |
+| `themes/vh_inventory.yaml` | `/config/themes/vh_inventory.yaml` | Optional dashboard theme |
 | `translations/*.json` | (next to `mk_dash.py`) | Build-time inputs for the multi-language layer |
 | `mk_dash.py` | your workstation | Builds and publishes the Lovelace dashboard over WebSocket |
 | `configuration.example.yaml` | merge into `/config/configuration.yaml` | The only additions your root config needs (see below) |

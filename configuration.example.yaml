@@ -52,7 +52,7 @@ recorder:
     entity_globs:
       - sensor.vh_inventory_*
 
-# 4) OPTIONAL - only if you use the bundled VH-Woonkamer theme. Skip this
+# 4) OPTIONAL - only if you use the bundled VH-Inventory theme. Skip this
 #    block if you already load themes elsewhere (it can be declared only once).
 frontend:
   themes: !include_dir_merge_named themes

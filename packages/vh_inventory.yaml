@@ -27,17 +27,17 @@ input_text:
     name: VH Edit Category Id
   vh_edit_store_id:
     name: VH Edit Store Id
-  vh_edit_inventory_id:
+  vh_edit_stock_id:
     name: VH Edit Inventory Id
   vh_edit_shopping_id:
     name: VH Edit Shopping Id
   vh_pending_scan_id:
     name: VH Pending Scan Id
-  vh_inventory_search:
+  vh_stock_search:
     name: VH Inventory Search
   vh_products_search:
     name: VH Products Search
-  vh_addlist_search:
+  vh_shopping_search:
     name: VH Add-List Search
 
 template:
@@ -48,7 +48,7 @@ template:
   - trigger:
       - trigger: state
         entity_id:
-          - input_text.vh_inventory_search
+          - input_text.vh_stock_search
           - input_select.vh_print_category
           - sensor.vh_inventory_stock
       - trigger: homeassistant
@@ -61,9 +61,9 @@ template:
           {%- macro strip_accents(text) -%}
             {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
           {%- endmacro -%}
-          {% set search = strip_accents(states('input_text.vh_inventory_search')) | trim %}
+          {% set search = strip_accents(states('input_text.vh_stock_search')) | trim %}
           {% set cat = states('input_select.vh_print_category') %}
-          {% set items = state_attr('sensor.vh_inventory_stock','inventory') or [] %}
+          {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
           {% set ns = namespace(count=0) %}
           {% for item in items %}
             {% if (search == '' or search in strip_accents(item.product) | trim)
@@ -73,13 +73,13 @@ template:
           {% endfor %}
           {{ ns.count }}
         attributes:
-          inventory: >
+          stock: >
             {%- macro strip_accents(text) -%}
               {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
             {%- endmacro -%}
-            {% set search = strip_accents(states('input_text.vh_inventory_search')) | trim %}
+            {% set search = strip_accents(states('input_text.vh_stock_search')) | trim %}
             {% set cat = states('input_select.vh_print_category') %}
-            {% set items = state_attr('sensor.vh_inventory_stock','inventory') or [] %}
+            {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
             {% set ns = namespace(filtered=[]) %}
             {% for item in items %}
               {% if (search == '' or search in strip_accents(item.product) | trim)
@@ -99,7 +99,7 @@ template:
       - trigger: homeassistant
         event: start
     sensor:
-      - name: VH Inventory Products Filtered
+      - name: VH Stock Products Filtered
         unique_id: vh_inventory_products_filtered
         icon: mdi:package-variant
         state: >
@@ -145,19 +145,19 @@ template:
   - trigger:
       - trigger: state
         entity_id:
-          - input_text.vh_addlist_search
+          - input_text.vh_shopping_search
           - sensor.vh_inventory_products
       - trigger: homeassistant
         event: start
     sensor:
-      - name: VH Inventory Add-List Filtered
-        unique_id: vh_inventory_addlist_filtered
+      - name: VH Inventory Shopping Filtered
+        unique_id: vh_inventory_shopping_filtered
         icon: mdi:cart-plus
         state: >
           {%- macro strip_accents(text) -%}
             {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
           {%- endmacro -%}
-          {% set search = strip_accents(states('input_text.vh_addlist_search')) | trim %}
+          {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
           {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
           {% if search == '' %}
             {{ items | length }}
@@ -175,7 +175,7 @@ template:
             {%- macro strip_accents(text) -%}
               {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
             {%- endmacro -%}
-            {% set search = strip_accents(states('input_text.vh_addlist_search')) | trim %}
+            {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
             {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
             {% if search == '' %}
               {{ items }}
@@ -198,7 +198,7 @@ input_boolean:
 
 input_select:
   vh_language:
-    name: Language
+    name: VH Language
     icon: mdi:translate
     options:
       - English
@@ -210,13 +210,13 @@ input_select:
   vh_product_store:
     name: VH Product Store
     options: ["(none)"]
-  vh_inv_product:
-    name: VH Inventory Product
+  vh_stock_product:
+    name: VH Stock Product
     options: ["(none)"]
-  vh_inv_location:
-    name: VH Inventory Location
+  vh_stock_location:
+    name: VH Stock Location
     options: ["(none)"]
-  vh_shop_product:
+  vh_shopping_product:
     name: VH Shopping Product
     options: ["(none)"]
   vh_print_category:
@@ -240,14 +240,14 @@ input_number:
     step: 1
     mode: box
     initial: 1
-  vh_inv_quantity:
-    name: VH Inventory Quantity
+  vh_stock_quantity:
+    name: VH Stock Quantity
     min: 0
     max: 99999
     step: 1
     mode: box
     initial: 1
-  vh_shop_quantity:
+  vh_shopping_quantity:
     name: VH Shopping Quantity
     min: 0
     max: 99999
@@ -385,53 +385,53 @@ script:
       - service: input_text.set_value
         target: {entity_id: input_text.vh_new_store}
         data: {value: ""}
-  vh_save_inventory:
+  vh_save_stock:
     alias: VH Save Inventory
     sequence:
       - service: pyscript.vh_inventory_add_stock
         data:
-          product: "{{ states('input_select.vh_inv_product') }}"
-          location: "{{ states('input_select.vh_inv_location') }}"
-          quantity: "{{ states('input_number.vh_inv_quantity')|int }}"
-  vh_update_inventory:
+          product: "{{ states('input_select.vh_stock_product') }}"
+          location: "{{ states('input_select.vh_stock_location') }}"
+          quantity: "{{ states('input_number.vh_stock_quantity')|int }}"
+  vh_update_stock:
     alias: VH Update Inventory
     sequence:
       - service: pyscript.vh_inventory_update_stock
         data:
-          id: "{{ states('input_text.vh_edit_inventory_id') }}"
-          product: "{{ states('input_select.vh_inv_product') }}"
-          location: "{{ states('input_select.vh_inv_location') }}"
-          quantity: "{{ states('input_number.vh_inv_quantity')|int }}"
+          id: "{{ states('input_text.vh_edit_stock_id') }}"
+          product: "{{ states('input_select.vh_stock_product') }}"
+          location: "{{ states('input_select.vh_stock_location') }}"
+          quantity: "{{ states('input_number.vh_stock_quantity')|int }}"
   vh_save_shopping:
     alias: VH Save Shopping
     sequence:
-      - service: pyscript.vh_inventory_add_shop
+      - service: pyscript.vh_inventory_add_shopping
         data:
-          product: "{{ states('input_select.vh_shop_product') }}"
-          quantity: "{{ states('input_number.vh_shop_quantity')|int }}"
+          product: "{{ states('input_select.vh_shopping_product') }}"
+          quantity: "{{ states('input_number.vh_shopping_quantity')|int }}"
   vh_update_shopping:
     alias: VH Update Shopping
     sequence:
-      - service: pyscript.vh_inventory_update_shop
+      - service: pyscript.vh_inventory_update_shopping
         data:
           id: "{{ states('input_text.vh_edit_shopping_id') }}"
-          product: "{{ states('input_select.vh_shop_product') }}"
-          quantity: "{{ states('input_number.vh_shop_quantity')|int }}"
-  vh_reset_inv_add:
+          product: "{{ states('input_select.vh_shopping_product') }}"
+          quantity: "{{ states('input_number.vh_shopping_quantity')|int }}"
+  vh_reset_stock_add:
     alias: VH Reset Inventory Add
     sequence:
       - service: input_select.select_first
-        target: {entity_id: [input_select.vh_inv_product, input_select.vh_inv_location]}
+        target: {entity_id: [input_select.vh_stock_product, input_select.vh_stock_location]}
       - service: input_number.set_value
-        target: {entity_id: input_number.vh_inv_quantity}
+        target: {entity_id: input_number.vh_stock_quantity}
         data: {value: 1}
   vh_reset_shopping_add:
     alias: VH Reset Shopping Add
     sequence:
       - service: input_select.select_first
-        target: {entity_id: input_select.vh_shop_product}
+        target: {entity_id: input_select.vh_shopping_product}
       - service: input_number.set_value
-        target: {entity_id: input_number.vh_shop_quantity}
+        target: {entity_id: input_number.vh_shopping_quantity}
         data: {value: 1}
   vh_reset_product_add:
     alias: VH Reset Product Add
@@ -473,7 +473,7 @@ script:
       - service: input_text.set_value
         target: {entity_id: input_text.vh_new_store}
         data: {value: ""}
-  vh_print_shopping_list:
+  vh_print_shopping:
     alias: VH Print Shopping List
     description: >-
       Print the VH-Inventory shopping list to the Epson TM-T20II (ESC/POS)
@@ -551,7 +551,7 @@ script:
           align: center
           cut: partial
           feed: 2
-  vh_print_inventory:
+  vh_print_stock:
     alias: VH Print Inventory
     description: >-
       Print the VH-Inventory stock list to the Epson TM-T20II (ESC/POS) thermal
@@ -578,7 +578,7 @@ script:
       - service: escpos_printer.print_text
         data:
           text: |-
-            {%- set inv = state_attr('sensor.vh_inventory_stock','inventory') or [] -%}
+            {%- set inv = state_attr('sensor.vh_inventory_stock','stock') or [] -%}
             {%- set products = state_attr('sensor.vh_inventory_products','products') or [] -%}
             {%- set cats = state_attr('sensor.vh_inventory_categories','categories') or [] -%}
             {%- set sel = states('input_select.vh_print_category') -%}

@@ -30,7 +30,7 @@ def _load_translations():
 
 I18N_MAP, I18N_LANGS, I18N_KEYS = _load_translations()
 
-# Table styling ported from the production "VH-Woonkamer" barcode dashboard:
+# Table styling ported from the production "VH-Inventory" barcode dashboard:
 # transparent row striping + subtle row separators + theme font, on glass cards.
 CSS = {"table+": "width:100%;padding-top:0 !important;",
        "thead th": "text-align:left;color:var(--vh-table-header-color,#4dabf5);"
@@ -42,7 +42,7 @@ CSS = {"table+": "width:100%;padding-top:0 !important;",
        "td+": "border-bottom:1px solid rgba(255,255,255,0.28);"}
 
 # Glass card frame (square corners + subtle white border) applied to every
-# flex-table card, matching the VH-Woonkamer look.
+# flex-table card, matching the VH-Inventory look.
 FLEX_CM = {"style": {
     ".": "ha-card { border: var(--vh-card-border,1px solid rgba(255,255,255,0.25))"
          " !important; border-radius: var(--vh-card-radius,0px) !important; }"
@@ -247,7 +247,7 @@ def del_icon(table):
 
 
 def resolve_icon():
-    """Wrench icon shown only on Unknown scanqueue rows: pre-fills and opens the
+    """Wrench icon shown only on Unknown scan_queue rows: pre-fills and opens the
     Resolve Product popup so the user can fill in details manually."""
     js = ("%s.callService('pyscript','vh_inventory_scan_resolve_manual',{id:${x.id}})"
           ".then(()=>{location.hash='#vh-resolve-product'})" % HASS)
@@ -270,7 +270,7 @@ def actions_cols(table, pophash, attr):
     ]
 
 
-# Button matching the VH-Woonkamer dashboard buttons: dark glass card,
+# Button matching the VH-Inventory dashboard buttons: dark glass card,
 # light bold text, subtle white border, square (theme) corners.
 def btn(name, action):
     return {"type": "custom:button-card", "name": name, "show_icon": False,
@@ -323,29 +323,29 @@ def popup(hsh, title, icon, rows, save_svc, reset_svc=None):
 # ----- Inventory tab -----
 inv_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Stock",
   "entities": {"include": "sensor.vh_inventory_stock_filtered"}, "css": CSS,
-  "columns": [id_col("inventory"), {"name": "Product", "data": "inventory", "modify": fld("product")},
-    {"name": "Category", "data": "inventory", "modify": fld("category"), "_w": "140px"},
-    {"name": "Location", "data": "inventory", "modify": inline_select("locations", "location", svc="vh_inventory_set_inventory_field"), "_w": "160px"},
-    {"name": "Quantity", "data": "inventory", "align": "center", "modify": fld("quantity"), "_w": "80px"},
-    {"name": "-", "data": "inventory", "align": "center", "modify": adjust_icon("mdi:minus", -1), "_w": "40px"},
-    {"name": "+", "data": "inventory", "align": "center", "modify": adjust_icon("mdi:plus", 1), "_w": "40px"}]
-    + actions_cols("inventory", "#vh-edit-inventory", "inventory")}
-inv_rows = ["input_select.vh_inv_product", "input_select.vh_inv_location",
-  "input_number.vh_inv_quantity"]
-inv_add = popup("vh-add-inventory", "Add Inventory", "mdi:clipboard-list", inv_rows, "script.vh_save_inventory", "script.vh_reset_inv_add")
-inv_edit = popup("vh-edit-inventory", "Edit Inventory", "mdi:clipboard-list", inv_rows, "script.vh_update_inventory")
+  "columns": [id_col("stock"), {"name": "Product", "data": "stock", "modify": fld("product")},
+    {"name": "Category", "data": "stock", "modify": fld("category"), "_w": "140px"},
+    {"name": "Location", "data": "stock", "modify": inline_select("locations", "location", svc="vh_inventory_set_stock_field"), "_w": "160px"},
+    {"name": "Quantity", "data": "stock", "align": "center", "modify": fld("quantity"), "_w": "80px"},
+    {"name": "-", "data": "stock", "align": "center", "modify": adjust_icon("mdi:minus", -1), "_w": "40px"},
+    {"name": "+", "data": "stock", "align": "center", "modify": adjust_icon("mdi:plus", 1), "_w": "40px"}]
+    + actions_cols("stock", "#vh-edit-inventory", "stock")}
+inv_rows = ["input_select.vh_stock_product", "input_select.vh_stock_location",
+  "input_number.vh_stock_quantity"]
+inv_add = popup("vh-add-inventory", "Add Inventory", "mdi:clipboard-list", inv_rows, "script.vh_save_stock", "script.vh_reset_stock_add")
+inv_edit = popup("vh-edit-inventory", "Edit Inventory", "mdi:clipboard-list", inv_rows, "script.vh_update_stock")
 # Accent-insensitive filter (server-side via sensor.vh_inventory_stock_filtered),
 # mirroring the production barcode dashboard. The clickable magnify icon clears
 # the search; strip_accents matching lives in vh_inventory.yaml. The Inventory tab
 # also carries a Print button + a category selector (input_select.vh_print_category,
 # kept in sync by pyscript) that chooses which category to print ("All" = every
-# category) via script.vh_print_inventory.
+# category) via script.vh_print_stock.
 print_inv_btn = btn("Print", {"action": "perform-action",
-  "perform_action": "script.vh_print_inventory", "data": {}})
+  "perform_action": "script.vh_print_stock", "data": {}})
 # Printer icon button that prints the inventory for the selected category. Sits
 # directly in front of the category selector, styled like the search magnifier.
 inv_print_icon = icon_action_btn("mdi:printer-pos-outline",
-  {"action": "perform-action", "perform_action": "script.vh_print_inventory", "data": {}})
+  {"action": "perform-action", "perform_action": "script.vh_print_stock", "data": {}})
 # Category selector: width capped to fit the name + arrow; the built-in shape icon
 # is hidden (a printer button sits in front instead); the picker is collapsed to
 # 36px to match the buttons by overriding the md-list-item height var on the
@@ -386,10 +386,10 @@ inv_cat_dd = {"type": "entities",
                 " md-item{padding-left:4px!important;padding-right:4px!important;}"}}}}}},
   "entities": [{"entity": "input_select.vh_print_category", "name": ""}]}
 inv_search_row = {"type": "entities", "card_mod": SEARCH_CM,
-  "entities": [{"entity": "input_text.vh_inventory_search", "name": "", "icon": "mdi:magnify",
-    "card_mod": icon_btn_cm("input_text.vh_inventory_search"),
+  "entities": [{"entity": "input_text.vh_stock_search", "name": "", "icon": "mdi:magnify",
+    "card_mod": icon_btn_cm("input_text.vh_stock_search"),
     "tap_action": {"action": "call-service", "service": "input_text.set_value",
-      "service_data": {"entity_id": "input_text.vh_inventory_search", "value": ""}}}]}
+      "service_data": {"entity_id": "input_text.vh_stock_search", "value": ""}}}]}
 inv_top_row = {"type": "horizontal-stack",
   "card_mod": {"style": ":host { margin-left: 16px !important; margin-top: -20px !important; }"
     " #root { display: flex; justify-content: flex-start; gap: 8px; align-items: center; }"
@@ -402,7 +402,7 @@ inv_tab = {"attributes": {"label": "Inventory", "icon": "mdi:clipboard-list", "s
 
 # ----- Shopping List tab -----
 def shop_adjust(icon, delta):
-    js = ("%s.callService('pyscript','vh_inventory_adjust_shop',{id:${x.id},delta:%d})"
+    js = ("%s.callService('pyscript','vh_inventory_adjust_shopping',{id:${x.id},delta:%d})"
           % (HASS, delta))
     return ("`<ha-icon icon=\"%s\" style=\"cursor:pointer\" onclick=\"%s\"></ha-icon>`"
             % (icon, js))
@@ -416,7 +416,7 @@ shop_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Shopping Li
     {"name": "+", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:plus", 1), "_w": "40px"},
     {"name": "Edit", "data": "shopping", "align": "center", "modify": edit_icon("shopping_list", "#vh-edit-shopping"), "_w": "56px"},
     {"name": "Del", "data": "shopping", "align": "center", "modify": del_icon("shopping_list"), "_w": "56px"}]}
-shop_rows = ["input_select.vh_shop_product", "input_number.vh_shop_quantity"]
+shop_rows = ["input_select.vh_shopping_product", "input_number.vh_shopping_quantity"]
 shop_add = popup("vh-add-shopping", "Add to Shopping List", "mdi:cart", shop_rows, "script.vh_save_shopping", "script.vh_reset_shopping_add")
 shop_edit = popup("vh-edit-shopping", "Edit Shopping Item", "mdi:cart", shop_rows, "script.vh_update_shopping")
 
@@ -453,7 +453,7 @@ prod_tab = {"attributes": {"label": "Products", "icon": "mdi:package-variant", "
 
 # ----- Add tab (product-button grid, ported from production "Toevoegen") -----
 # Each product is a button: blue (--primary-color) when not on the shopping list,
-# green (#4CAF50) when it is. Tapping toggles it via vh_inventory_shop_toggle.
+# green (#4CAF50) when it is. Tapping toggles it via vh_inventory_shopping_toggle.
 # The grid layout (flex-wrap of buttons) comes from the flex-table css below.
 GRID_CSS = {"table+": "display:block;width:100%;padding-top:0 !important;",
   "thead+": "display:none;",
@@ -479,7 +479,7 @@ _addlist_btn = (
   "border-radius:var(--vh-card-radius,4px);background-color:\"+bg+\";color:#fff;"
   "font-size:0.95em;width:130px;height:75px;box-sizing:border-box;overflow:hidden;"
   "word-break:break-word;white-space:normal;' onclick=\\\"" + HASS +
-  ".callService('pyscript','vh_inventory_shop_toggle',{product_id:\"+x.id+\"})\\\">\""
+  ".callService('pyscript','vh_inventory_shopping_toggle',{product_id:\"+x.id+\"})\\\">\""
   "+nm+\"</button>\";"
   "})()")
 
@@ -491,7 +491,7 @@ addlist_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Add to L
 
 addlist_tab = {"attributes": {"label": "Quick add", "icon": "mdi:cart-plus", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [
-    search_block("input_text.vh_addlist_search"), addlist_tbl]}}
+    search_block("input_text.vh_shopping_search"), addlist_tbl]}}
 
 
 def simple_tbl(title, sensor, attr, col, table, pophash):
@@ -533,21 +533,21 @@ def tab_boxed(label, icon, tbl, add_hash, *popups, add_label="Add", extra=None):
 
 # Print button for the Shopping tab — calls the ESC/POS print script.
 print_shopping_btn = btn("Print", {"action": "perform-action",
-  "perform_action": "script.vh_print_shopping_list", "data": {}})
+  "perform_action": "script.vh_print_shopping", "data": {}})
 print_shopping_btn["styles"]["card"] += [{"margin-left": "8px"}]
 
 
 # ----- Scan tab -----
 scan_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Scan Queue",
-  "entities": {"include": "sensor.vh_inventory_scanqueue"}, "css": CSS,
-  "columns": [id_col("scanqueue"), {"name": "Barcode", "data": "scanqueue", "modify": fld("barcode")},
-    {"name": "Action", "data": "scanqueue", "align": "center", "modify": fld("action")},
-    {"name": "State", "data": "scanqueue", "align": "center", "modify": fld("state")},
-    {"name": "Name", "data": "scanqueue", "modify": fld("name")},
-    {"name": "Brand", "data": "scanqueue", "modify": fld("manufacturer")},
-    {"name": "Source", "data": "scanqueue", "align": "center", "modify": fld("provider")},
-    {"name": "Resolve", "data": "scanqueue", "align": "center", "modify": resolve_icon()},
-    {"name": "Del", "data": "scanqueue", "align": "center", "modify": del_icon("scanqueue"), "_w": "56px"}]}
+  "entities": {"include": "sensor.vh_inventory_scan_queue"}, "css": CSS,
+  "columns": [id_col("scan_queue"), {"name": "Barcode", "data": "scan_queue", "modify": fld("barcode")},
+    {"name": "Action", "data": "scan_queue", "align": "center", "modify": fld("action")},
+    {"name": "State", "data": "scan_queue", "align": "center", "modify": fld("state")},
+    {"name": "Name", "data": "scan_queue", "modify": fld("name")},
+    {"name": "Brand", "data": "scan_queue", "modify": fld("manufacturer")},
+    {"name": "Source", "data": "scan_queue", "align": "center", "modify": fld("provider")},
+    {"name": "Resolve", "data": "scan_queue", "align": "center", "modify": resolve_icon()},
+    {"name": "Del", "data": "scan_queue", "align": "center", "modify": del_icon("scan_queue"), "_w": "56px"}]}
 scan_input = {"type": "entities", "card_mod": SEARCH_CM,
   "entities": [{"entity": "input_text.vh_scan_barcode", "name": "",
     "icon": "mdi:barcode-scan", "card_mod": scan_icon_cm("(barcode)")}]}
@@ -735,7 +735,7 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
     hist_tab,
     setup_tab]}
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
-  "theme": "VH-Woonkamer", "background": "var(--vh-dashboard-gradient)",
+  "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
   "sections": [{"type": "grid", "column_span": 4, "cards": [tabbed, focus_boot]}]}
 
 # Apply the glass card frame to every flex-table card in the view.

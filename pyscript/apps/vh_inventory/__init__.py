@@ -59,7 +59,7 @@ DB_SCHEMA = {
         ("category_id", "INTEGER REFERENCES categories(id)"),
         ("store_id", "INTEGER REFERENCES stores(id)"),
     ],
-    "inventory": [
+    "stock": [
         ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
         ("product_id", "INTEGER REFERENCES products(id)"),
         ("location_id", "INTEGER REFERENCES locations(id)"),
@@ -70,7 +70,7 @@ DB_SCHEMA = {
         ("product_id", "INTEGER REFERENCES products(id)"),
         ("quantity", "INTEGER DEFAULT 1"),
     ],
-    "scanqueue": [
+    "scan_queue": [
         ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
         ("barcode", "TEXT"),
         ("action", "TEXT CHECK(action IN ('Add','Use'))"),
@@ -96,7 +96,7 @@ DB_SCHEMA = {
 # Creation/migration order - parents before children for FK references.
 DB_SCHEMA_ORDER = [
     "categories", "stores", "locations",
-    "products", "inventory", "shopping_list", "scanqueue", "history",
+    "products", "stock", "shopping_list", "scan_queue", "history",
 ]
 
 
@@ -110,6 +110,18 @@ def _ensure_schema():
     Runs on startup so DB_SCHEMA above is always reflected in the live DB."""
     conn = _conn()
     try:
+        # One-time table renames (naming-convention migration). Idempotent:
+        # only fires when the old table still exists and the new one does not.
+        renames = [("inventory", "stock"), ("scanqueue", "scan_queue")]
+        have = []
+        for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"):
+            have.append(r[0])
+        for old, new in renames:
+            if old in have and new not in have:
+                conn.execute("ALTER TABLE %s RENAME TO %s" % (old, new))
+                log.info("vh_inventory: renamed table %s -> %s" % (old, new))
+        conn.commit()
         for table in DB_SCHEMA_ORDER:
             cols = DB_SCHEMA[table]
             parts = ["%s %s" % (n, d) for (n, d) in cols]
@@ -174,7 +186,7 @@ def _load_inventory():
         rows = conn.execute(
             "SELECT inv.id,inv.product_id,inv.location_id,inv.quantity,"
             "COALESCE(c.category,'') "
-            "FROM inventory inv "
+            "FROM stock inv "
             "LEFT JOIN products p ON inv.product_id=p.id "
             "LEFT JOIN categories c ON p.category_id=c.id "
             "ORDER BY inv.id").fetchall()
@@ -231,9 +243,9 @@ def _sync_selects():
     pairs = [
         ("input_select.vh_product_category", [NONE] + sorted(cat_by_name.keys())),
         ("input_select.vh_product_store", [NONE] + sorted(store_by_name.keys())),
-        ("input_select.vh_inv_product", [NONE] + sorted(prod_by_name.keys())),
-        ("input_select.vh_inv_location", [NONE] + sorted(loc_by_name.keys())),
-        ("input_select.vh_shop_product", [NONE] + sorted(prod_by_name.keys())),
+        ("input_select.vh_stock_product", [NONE] + sorted(prod_by_name.keys())),
+        ("input_select.vh_stock_location", [NONE] + sorted(loc_by_name.keys())),
+        ("input_select.vh_shopping_product", [NONE] + sorted(prod_by_name.keys())),
         ("input_select.vh_print_category", ["All"] + sorted(cat_by_name.keys())),
     ]
     for ent, opts in pairs:
@@ -248,7 +260,7 @@ def _product_totals():
     conn = _conn()
     try:
         rows = conn.execute(
-            "SELECT product_id, COALESCE(SUM(quantity),0) FROM inventory "
+            "SELECT product_id, COALESCE(SUM(quantity),0) FROM stock "
             "GROUP BY product_id").fetchall()
     finally:
         conn.close()
@@ -322,17 +334,17 @@ def _publish():
     inv = _load_inventory()
     state.set("sensor.vh_inventory_stock", len(inv), {
         "friendly_name": "VH Inventory Stock",
-        "icon": "mdi:clipboard-list", "inventory": inv})
+        "icon": "mdi:clipboard-list", "stock": inv})
     shopping = _load_shopping()
     state.set("sensor.vh_inventory_shopping", len(shopping), {
         "friendly_name": "VH Inventory Shopping List",
         "icon": "mdi:cart", "shopping": shopping})
-    scanq = _load("scanqueue", ["id", "barcode", "action", "state", "name",
+    scanq = _load("scan_queue", ["id", "barcode", "action", "state", "name",
         "manufacturer", "description", "unit", "category", "image_url",
         "provider"], "id DESC")
-    state.set("sensor.vh_inventory_scanqueue", len(scanq), {
+    state.set("sensor.vh_inventory_scan_queue", len(scanq), {
         "friendly_name": "VH Inventory Scan Queue",
-        "icon": "mdi:barcode-scan", "scanqueue": scanq})
+        "icon": "mdi:barcode-scan", "scan_queue": scanq})
     hist = _load("history", ["id", "timestamp", "action", "entity",
         "entity_id", "detail"], "id DESC LIMIT 200")
     state.set("sensor.vh_inventory_history", len(hist), {
@@ -479,7 +491,7 @@ def vh_inventory_add_store(store=None):
 
 @service
 def vh_inventory_scan_enqueue(barcode=None, action=None):
-    """Add a scanned barcode to the scanqueue with the given action.
+    """Add a scanned barcode to the scan_queue with the given action.
     action must be 'Add' or 'Use'; empty barcodes are ignored.
     If the barcode already matches a product, state is 'Exist'. Otherwise the
     row is inserted as 'Lookup' and an online resolution is attempted, setting
@@ -492,34 +504,34 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
     exists = bc.isdigit() and _fetch_one_sql(
         "SELECT 1 FROM products WHERE barcode=?", [int(bc)]) is not None
     if exists:
-        rid = _insert_id("INSERT INTO scanqueue(barcode, action, state) "
+        rid = _insert_id("INSERT INTO scan_queue(barcode, action, state) "
                          "VALUES(?, ?, 'Exist')", [bc, action])
-        _log_history("scan", "scanqueue", rid,
+        _log_history("scan", "scan_queue", rid,
                      "Scanned %s (%s) - already a product (Exist)" % (bc, action))
         # Case 2: Add + Exist -> add 1 to stock (merge if already present).
         if action == "Add":
             pid = _product_id_for_barcode(bc)
             if pid:
                 _add_inventory_qty(pid, 1)
-                _delete_scanqueue_row(rid, action, "Exist")
+                _delete_scan_queue_row(rid, action, "Exist")
         # Case 3: Use + Exist -> remove 1 from stock, never below 0.
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
                 _remove_inventory_qty(pid, 1)
-                _delete_scanqueue_row(rid, action, "Exist")
+                _delete_scan_queue_row(rid, action, "Exist")
         return
     rid = _insert_id(
-        "INSERT INTO scanqueue(barcode, action, state) VALUES(?, ?, 'Lookup')",
+        "INSERT INTO scan_queue(barcode, action, state) VALUES(?, ?, 'Lookup')",
         [bc, action])
-    _log_history("scan", "scanqueue", rid, "Scanned %s (%s)" % (bc, action))
+    _log_history("scan", "scan_queue", rid, "Scanned %s (%s)" % (bc, action))
     info = _scan_resolve_row(rid, bc)
     # Case 1: Add + New -> create the product and stock 1.
     if action == "Add" and info:
         pid = _create_product_from_scan(bc, info)
         if pid:
             _add_inventory_qty(pid, 1)
-            _delete_scanqueue_row(rid, action, "New")
+            _delete_scan_queue_row(rid, action, "New")
     # Case 4: Use + New -> create product (same settings), stock 0, and put it
     # on the shopping list at its auto-add quantity (as if below threshold).
     elif action == "Use" and info:
@@ -529,9 +541,9 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
                 "SELECT auto_add_quantity FROM products WHERE id=?", [pid])
             add_qty = int((prod or {}).get("auto_add_quantity") or 1)
             inv_id = _insert_id(
-                "INSERT INTO inventory(product_id,location_id,quantity) "
+                "INSERT INTO stock(product_id,location_id,quantity) "
                 "VALUES(?,NULL,0)", [pid])
-            _log_history("add", "inventory", inv_id,
+            _log_history("add", "stock", inv_id,
                          "Scan-use(new): stock 0 (product_id=%d)" % pid)
             shop_id = _insert_id(
                 "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
@@ -539,30 +551,30 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
             _log_history("auto-add", "shopping_list", shop_id,
                          "Scan-use(new): added to shopping qty=%d (product_id=%d)"
                          % (add_qty, pid))
-            _delete_scanqueue_row(rid, action, "New")
+            _delete_scan_queue_row(rid, action, "New")
 
 
 @service
 def vh_inventory_scan_resolve(id=None):
-    """Re-run the online product lookup for a scanqueue row by id."""
+    """Re-run the online product lookup for a scan_queue row by id."""
     if id in (None, ""):
         return
     row = _fetch_one_sql(
-        "SELECT id, barcode FROM scanqueue WHERE id=?", [int(id)])
+        "SELECT id, barcode FROM scan_queue WHERE id=?", [int(id)])
     if row:
         _scan_resolve_row(row["id"], row["barcode"])
 
 
 @service
 def vh_inventory_scan_resolve_manual(id=None):
-    """Prepare the Resolve Product popup for an Unknown scanqueue row.
+    """Prepare the Resolve Product popup for an Unknown scan_queue row.
     Pre-fills the barcode, resets the other product fields to defaults, and
-    records which scanqueue row is being resolved (in input_text.
+    records which scan_queue row is being resolved (in input_text.
     vh_pending_scan_id) so the save can finish the queued Add/Use action."""
     if id in (None, ""):
         return
     row = _fetch_one_sql(
-        "SELECT id, barcode, action, state FROM scanqueue WHERE id=?", [int(id)])
+        "SELECT id, barcode, action, state FROM scan_queue WHERE id=?", [int(id)])
     if not row:
         return
     input_text.set_value(entity_id="input_text.vh_pending_scan_id",
@@ -596,7 +608,7 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
     the same call, finish the queued scan action recorded in
     input_text.vh_pending_scan_id. This is one service (not a chain of two) so
     HA-script execution stays reliable. Add -> stock 1; Use -> stock 0 +
-    shopping at the product's auto-add quantity; then the scanqueue row is
+    shopping at the product's auto-add quantity; then the scan_queue row is
     deleted and the pending marker cleared. With no pending resolve it simply
     adds the product, like vh_inventory_add_product."""
     if not name:
@@ -629,7 +641,7 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
     except (TypeError, ValueError):
         _publish()
         return
-    row = _fetch_one_sql("SELECT id, action FROM scanqueue WHERE id=?", [rid])
+    row = _fetch_one_sql("SELECT id, action FROM scan_queue WHERE id=?", [rid])
     if not row:
         _publish()
         return
@@ -638,9 +650,9 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
         _add_inventory_qty(pid, 1)
     elif action == "Use":
         inv_id = _insert_id(
-            "INSERT INTO inventory(product_id,location_id,quantity) "
+            "INSERT INTO stock(product_id,location_id,quantity) "
             "VALUES(?,NULL,0)", [pid])
-        _log_history("add", "inventory", inv_id,
+        _log_history("add", "stock", inv_id,
                      "Resolve-use: stock 0 (product_id=%d)" % pid)
         shop_id = _insert_id(
             "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
@@ -648,28 +660,28 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
         _log_history("auto-add", "shopping_list", shop_id,
                      "Resolve-use: added to shopping qty=%d (product_id=%d)"
                      % (add_qty, pid))
-    _delete_scanqueue_row(rid, action, "Unknown")
+    _delete_scan_queue_row(rid, action, "Unknown")
 
 
 def _scan_resolve_row(rid, bc):
-    """Look the barcode up online and store the result on the scanqueue row.
+    """Look the barcode up online and store the result on the scan_queue row.
     Sets state 'New' with product details on success, else 'Unknown'.
     Returns the resolved info dict (or None if not resolvable)."""
     info = _resolve_barcode(bc)
     if info:
         _exec(
-            "UPDATE scanqueue SET state='New', name=?, manufacturer=?, "
+            "UPDATE scan_queue SET state='New', name=?, manufacturer=?, "
             "description=?, unit=?, category=?, image_url=?, provider=? "
             "WHERE id=?",
             [info.get("name"), info.get("manufacturer"),
              info.get("description"), info.get("unit"), info.get("category"),
              info.get("image_url"), info.get("provider"), rid])
-        _log_history("resolve", "scanqueue", rid,
+        _log_history("resolve", "scan_queue", rid,
                      "Resolved %s -> '%s' via %s"
                      % (bc, info.get("name"), info.get("provider")))
     else:
-        _exec("UPDATE scanqueue SET state='Unknown' WHERE id=?", [rid])
-        _log_history("resolve", "scanqueue", rid,
+        _exec("UPDATE scan_queue SET state='Unknown' WHERE id=?", [rid])
+        _log_history("resolve", "scan_queue", rid,
                      "Could not resolve %s (Unknown)" % bc)
     return info
 
@@ -706,18 +718,18 @@ def _add_inventory_qty(pid, qty):
     existing row if present. Reconciles the shopping list afterwards."""
     before = _product_totals()
     existing = _fetch_one_sql(
-        "SELECT id,quantity FROM inventory "
+        "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND location_id IS NULL", [pid])
     if existing:
-        _exec("UPDATE inventory SET quantity=quantity+? WHERE id=?",
+        _exec("UPDATE stock SET quantity=quantity+? WHERE id=?",
               [int(qty), existing["id"]])
-        _log_history("adjust", "inventory", existing["id"],
+        _log_history("adjust", "stock", existing["id"],
                      "Scan-add: stock +%d (product_id=%d)" % (int(qty), pid))
     else:
         nid = _insert_id(
-            "INSERT INTO inventory(product_id,location_id,quantity) "
+            "INSERT INTO stock(product_id,location_id,quantity) "
             "VALUES(?,NULL,?)", [pid, int(qty)])
-        _log_history("add", "inventory", nid,
+        _log_history("add", "stock", nid,
                      "Scan-add: stock %d (product_id=%d)" % (int(qty), pid))
     if _reconcile_shopping(before, _product_totals()):
         _publish()
@@ -728,27 +740,27 @@ def _remove_inventory_qty(pid, qty):
     Reconciles the shopping list afterwards."""
     before = _product_totals()
     existing = _fetch_one_sql(
-        "SELECT id,quantity FROM inventory "
+        "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND location_id IS NULL", [pid])
     if existing:
         newq = existing["quantity"] - int(qty)
         if newq < 0:
             newq = 0
-        _exec("UPDATE inventory SET quantity=? WHERE id=?", [newq, existing["id"]])
-        _log_history("adjust", "inventory", existing["id"],
+        _exec("UPDATE stock SET quantity=? WHERE id=?", [newq, existing["id"]])
+        _log_history("adjust", "stock", existing["id"],
                      "Scan-use: stock -%d -> %d (product_id=%d)"
                      % (int(qty), newq, pid))
     if _reconcile_shopping(before, _product_totals()):
         _publish()
 
 
-def _delete_scanqueue_row(rid, action, state):
-    """Remove a scanqueue row whose action has been fully completed.
+def _delete_scan_queue_row(rid, action, state):
+    """Remove a scan_queue row whose action has been fully completed.
     The action is preserved in the history audit trail."""
     if not rid:
         return
-    _exec("DELETE FROM scanqueue WHERE id=?", [rid])
-    _log_history("delete", "scanqueue", rid,
+    _exec("DELETE FROM scan_queue WHERE id=?", [rid])
+    _log_history("delete", "scan_queue", rid,
                  "Completed %s (%s) - removed from scan queue" % (action, state))
 
 
@@ -935,24 +947,24 @@ def _lookup_upcdb(bc):
 @service
 def vh_inventory_delete(table=None, id=None):
     """Delete a row by id from an allowed VH table."""
-    if table not in {"products", "locations", "categories", "stores", "inventory", "shopping_list", "scanqueue"} or id in (None, ""):
+    if table not in {"products", "locations", "categories", "stores", "stock", "shopping_list", "scan_queue"} or id in (None, ""):
         return
-    if table == "inventory":
+    if table == "stock":
         before = _product_totals()
-        _exec("DELETE FROM inventory WHERE id=?", [int(id)])
+        _exec("DELETE FROM stock WHERE id=?", [int(id)])
         if _reconcile_shopping(before, _product_totals()):
             _publish()
-        _log_history("delete", "inventory", id, "Deleted inventory id=%s" % id)
+        _log_history("delete", "stock", id, "Deleted inventory id=%s" % id)
         return
     if table == "products":
         pid = int(id)
         invc = _fetch_one_sql(
-            "SELECT COUNT(*) AS c FROM inventory WHERE product_id=?", [pid])
+            "SELECT COUNT(*) AS c FROM stock WHERE product_id=?", [pid])
         shopc = _fetch_one_sql(
             "SELECT COUNT(*) AS c FROM shopping_list WHERE product_id=?", [pid])
         ninv = invc["c"] if invc else 0
         nshop = shopc["c"] if shopc else 0
-        _exec("DELETE FROM inventory WHERE product_id=?", [pid])
+        _exec("DELETE FROM stock WHERE product_id=?", [pid])
         _exec("DELETE FROM shopping_list WHERE product_id=?", [pid])
         _exec("DELETE FROM products WHERE id=?", [pid])
         _log_history("delete", "products", id,
@@ -1004,22 +1016,22 @@ def vh_inventory_edit_load(table=None, id=None):
             input_select.select_option(entity_id="input_select.vh_product_store", option=store_name)
         except Exception:
             pass
-    elif table == "inventory":
+    elif table == "stock":
         prod_id, _, loc_id, _ = _prod_loc_maps()
-        row = _fetch_one("inventory", ["id", "product_id", "location_id", "quantity"], rid)
+        row = _fetch_one("stock", ["id", "product_id", "location_id", "quantity"], rid)
         if not row:
             return
         _sync_selects()
-        input_text.set_value(entity_id="input_text.vh_edit_inventory_id", value=str(rid))
-        input_number.set_value(entity_id="input_number.vh_inv_quantity", value=row["quantity"] or 0)
+        input_text.set_value(entity_id="input_text.vh_edit_stock_id", value=str(rid))
+        input_number.set_value(entity_id="input_number.vh_stock_quantity", value=row["quantity"] or 0)
         pname = prod_id.get(row["product_id"], NONE) if row["product_id"] else NONE
         lname = loc_id.get(row["location_id"], NONE) if row["location_id"] else NONE
         try:
-            input_select.select_option(entity_id="input_select.vh_inv_product", option=pname)
+            input_select.select_option(entity_id="input_select.vh_stock_product", option=pname)
         except Exception:
             pass
         try:
-            input_select.select_option(entity_id="input_select.vh_inv_location", option=lname)
+            input_select.select_option(entity_id="input_select.vh_stock_location", option=lname)
         except Exception:
             pass
     elif table == "shopping_list":
@@ -1029,10 +1041,10 @@ def vh_inventory_edit_load(table=None, id=None):
             return
         _sync_selects()
         input_text.set_value(entity_id="input_text.vh_edit_shopping_id", value=str(rid))
-        input_number.set_value(entity_id="input_number.vh_shop_quantity", value=row["quantity"] or 1)
+        input_number.set_value(entity_id="input_number.vh_shopping_quantity", value=row["quantity"] or 1)
         pname = prod_id.get(row["product_id"], NONE) if row["product_id"] else NONE
         try:
-            input_select.select_option(entity_id="input_select.vh_shop_product", option=pname)
+            input_select.select_option(entity_id="input_select.vh_shopping_product", option=pname)
         except Exception:
             pass
     elif table in SIMPLE:
@@ -1092,7 +1104,7 @@ def vh_inventory_set_product_field(id=None, field=None, value=None):
 
 
 @service
-def vh_inventory_set_inventory_field(id=None, field=None, value=None):
+def vh_inventory_set_stock_field(id=None, field=None, value=None):
     """Inline-edit a single inventory field from the Inventory table.
     Allowed fields: location. Changing location to one the product already has
     stock at merges the quantities into the existing row (no duplicates)."""
@@ -1103,23 +1115,23 @@ def vh_inventory_set_inventory_field(id=None, field=None, value=None):
         _, _, _, loc_by_name = _prod_loc_maps()
         lid = _resolve(value, loc_by_name)
         row = _fetch_one_sql(
-            "SELECT product_id,quantity FROM inventory WHERE id=?", [rid])
+            "SELECT product_id,quantity FROM stock WHERE id=?", [rid])
         if not row:
             return
         pid = row["product_id"]
         other = _fetch_one_sql(
-            "SELECT id FROM inventory WHERE product_id=? "
+            "SELECT id FROM stock WHERE product_id=? "
             "AND IFNULL(location_id,-1)=IFNULL(?,-1) AND id<>?", [pid, lid, rid])
         if other:
-            _exec("UPDATE inventory SET quantity=quantity+? WHERE id=?",
+            _exec("UPDATE stock SET quantity=quantity+? WHERE id=?",
                   [int(row["quantity"] or 0), other["id"]])
-            _exec("DELETE FROM inventory WHERE id=?", [rid])
-            _log_history("update", "inventory", other["id"],
+            _exec("DELETE FROM stock WHERE id=?", [rid])
+            _log_history("update", "stock", other["id"],
                          "Moved inventory id=%s to '%s' (merged)"
                          % (rid, value or NONE))
         else:
-            _exec("UPDATE inventory SET location_id=? WHERE id=?", [lid, rid])
-            _log_history("update", "inventory", rid,
+            _exec("UPDATE stock SET location_id=? WHERE id=?", [lid, rid])
+            _log_history("update", "stock", rid,
                          "Set location = %s" % (value or NONE))
     else:
         return
@@ -1147,17 +1159,17 @@ def vh_inventory_add_stock(product=None, location=None, quantity=0):
     qty = int(quantity or 0)
     before = _product_totals()
     existing = _fetch_one_sql(
-        "SELECT id,quantity FROM inventory "
+        "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND IFNULL(location_id,-1)=IFNULL(?,-1)", [pid, lid])
     if existing:
-        _exec("UPDATE inventory SET quantity=quantity+? WHERE id=?",
+        _exec("UPDATE stock SET quantity=quantity+? WHERE id=?",
               [qty, existing["id"]])
     else:
-        _exec("INSERT INTO inventory(product_id,location_id,quantity) VALUES(?,?,?)",
+        _exec("INSERT INTO stock(product_id,location_id,quantity) VALUES(?,?,?)",
               [pid, lid, qty])
     if _reconcile_shopping(before, _product_totals()):
         _publish()
-    _log_history("add", "inventory", None,
+    _log_history("add", "stock", None,
                  "Added %d to stock of '%s'%s" % (
                      qty, product,
                      "" if lid is None else " @ '%s'" % location))
@@ -1174,11 +1186,11 @@ def vh_inventory_update_stock(id=None, product=None, location=None, quantity=0):
     if pid is None:
         return
     before = _product_totals()
-    _exec("UPDATE inventory SET product_id=?,location_id=?,quantity=? WHERE id=?",
+    _exec("UPDATE stock SET product_id=?,location_id=?,quantity=? WHERE id=?",
           [pid, lid, int(quantity or 0), int(id)])
     if _reconcile_shopping(before, _product_totals()):
         _publish()
-    _log_history("update", "inventory", id,
+    _log_history("update", "stock", id,
                  "Updated inventory id=%s ('%s' qty %d)"
                  % (id, product, int(quantity or 0)))
 
@@ -1189,17 +1201,17 @@ def vh_inventory_adjust_stock(id=None, delta=0):
     if id in (None, ""):
         return
     before = _product_totals()
-    _exec("UPDATE inventory SET quantity=MAX(0, quantity + ?) WHERE id=?",
+    _exec("UPDATE stock SET quantity=MAX(0, quantity + ?) WHERE id=?",
           [int(delta), int(id)])
     if _reconcile_shopping(before, _product_totals()):
         _publish()
-    _log_history("adjust", "inventory", id,
+    _log_history("adjust", "stock", id,
                  "Stock id=%s quantity %+d" % (id, int(delta)))
 
 
 # ---------- SHOPPING LIST ----------
 @service
-def vh_inventory_add_shop(product=None, quantity=1):
+def vh_inventory_add_shopping(product=None, quantity=1):
     """Add a shopping-list row (product + quantity to buy)."""
     _, prod_by_name, _, _ = _prod_loc_maps()
     pid = prod_by_name.get(product) if product not in (None, "", NONE) else None
@@ -1212,7 +1224,7 @@ def vh_inventory_add_shop(product=None, quantity=1):
 
 
 @service
-def vh_inventory_update_shop(id=None, product=None, quantity=1):
+def vh_inventory_update_shopping(id=None, product=None, quantity=1):
     """Update a shopping-list row by id."""
     if id in (None, ""):
         return
@@ -1228,7 +1240,7 @@ def vh_inventory_update_shop(id=None, product=None, quantity=1):
 
 
 @service
-def vh_inventory_adjust_shop(id=None, delta=0):
+def vh_inventory_adjust_shopping(id=None, delta=0):
     """Increment/decrement a shopping-list row's quantity by delta (clamped at 0)."""
     if id in (None, ""):
         return
@@ -1239,7 +1251,7 @@ def vh_inventory_adjust_shop(id=None, delta=0):
 
 
 @service
-def vh_inventory_shop_toggle(product_id=None):
+def vh_inventory_shopping_toggle(product_id=None):
     """Toggle a product's presence on the shopping list (used by the Add tab's
     product-button grid). If the product is on the list, remove all its rows;
     otherwise add a single row (qty 1)."""
