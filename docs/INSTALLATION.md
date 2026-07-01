@@ -286,14 +286,50 @@ Lovelace API under URL path `/vh-inventory`.
 ### External services used (barcode resolution)
 
 The backend resolves unknown barcodes online via these public APIs (requires outbound
-internet from HA):
+internet from HA). **All are free and require no API key** — they only need the descriptive
+`User-Agent` the backend already sends. There is therefore nothing to license or store for a
+default install.
 
-| Provider | Base URL |
-|---|---|
-| Open Food Facts | `https://world.openfoodfacts.org` |
-| Open Beauty Facts | `https://world.openbeautyfacts.org` |
-| Open Pet Food Facts | `https://world.openpetfoodfacts.org` |
-| UPC Item DB (trial) | `https://api.upcitemdb.com/prod/trial/lookup` |
+| Provider | Base URL | API key |
+|---|---|---|
+| Open Food Facts | `https://world.openfoodfacts.org` | None — open, keyless |
+| Open Beauty Facts | `https://world.openbeautyfacts.org` | None — open, keyless |
+| Open Pet Food Facts | `https://world.openpetfoodfacts.org` | None — open, keyless |
+| UPC Item DB (trial) | `https://api.upcitemdb.com/prod/trial/lookup` | None, but limited to ~100 lookups/day |
+
+### API keys & secrets (optional)
+
+A default install needs **no keys**. The only provider that offers one is **UPC Item DB**: a
+free account raises the trial's ~100/day limit. Register at
+<https://www.upcitemdb.com/api/explorer> to get a `user_key`.
+
+If you add any keyed provider, store the key the Home-Assistant way — never inline it in a
+package or the app code:
+
+1. Put the secret in `/config/secrets.yaml`:
+
+   ```yaml
+   # /config/secrets.yaml
+   upcitemdb_user_key: "your-key-here"
+   ```
+
+2. Hand it to the pyscript app through its config block in `configuration.yaml` (or a
+   package), using `!secret` so the value is never written in plain text:
+
+   ```yaml
+   # configuration.yaml
+   pyscript:
+     allow_all_imports: true
+     apps:
+       vh_inventory:
+         upcitemdb_user_key: !secret upcitemdb_user_key
+   ```
+
+   The app reads its config from `pyscript.app_config`. (The bundled backend uses only the
+   keyless endpoints, so this block is inert until keyed-provider support is added.)
+
+`/config/secrets.yaml` is the single, standard location for all Home Assistant secrets; keep
+it out of any backup or repository you share.
 
 ### Key services (pyscript)
 
