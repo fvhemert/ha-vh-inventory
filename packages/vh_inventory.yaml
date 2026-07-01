@@ -28,17 +28,17 @@ input_text:
   vh_edit_store_id:
     name: VH Edit Store Id
   vh_edit_stock_id:
-    name: VH Edit Inventory Id
+    name: VH Edit Stock Id
   vh_edit_shopping_id:
     name: VH Edit Shopping Id
   vh_pending_scan_id:
     name: VH Pending Scan Id
   vh_stock_search:
-    name: VH Inventory Search
+    name: VH Stock Search
   vh_products_search:
     name: VH Products Search
   vh_shopping_search:
-    name: VH Add-List Search
+    name: VH Shopping Search
 
 template:
   # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
@@ -99,7 +99,7 @@ template:
       - trigger: homeassistant
         event: start
     sensor:
-      - name: VH Stock Products Filtered
+      - name: VH Inventory Products Filtered
         unique_id: vh_inventory_products_filtered
         icon: mdi:package-variant
         state: >
@@ -386,7 +386,7 @@ script:
         target: {entity_id: input_text.vh_new_store}
         data: {value: ""}
   vh_save_stock:
-    alias: VH Save Inventory
+    alias: VH Save Stock
     sequence:
       - service: pyscript.vh_inventory_add_stock
         data:
@@ -394,7 +394,7 @@ script:
           location: "{{ states('input_select.vh_stock_location') }}"
           quantity: "{{ states('input_number.vh_stock_quantity')|int }}"
   vh_update_stock:
-    alias: VH Update Inventory
+    alias: VH Update Stock
     sequence:
       - service: pyscript.vh_inventory_update_stock
         data:
@@ -418,7 +418,7 @@ script:
           product: "{{ states('input_select.vh_shopping_product') }}"
           quantity: "{{ states('input_number.vh_shopping_quantity')|int }}"
   vh_reset_stock_add:
-    alias: VH Reset Inventory Add
+    alias: VH Reset Stock Add
     sequence:
       - service: input_select.select_first
         target: {entity_id: [input_select.vh_stock_product, input_select.vh_stock_location]}
@@ -552,7 +552,7 @@ script:
           cut: partial
           feed: 2
   vh_print_stock:
-    alias: VH Print Inventory
+    alias: VH Print Stock
     description: >-
       Print the VH-Inventory stock list to the Epson TM-T20II (ESC/POS) thermal
       printer, grouped per category (category header + its items with quantity).
