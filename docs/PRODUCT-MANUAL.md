@@ -164,8 +164,9 @@ The **Shopping list** tab holds what you need to buy.
 
 ![Shopping list tab](images/02-shopping.png)
 
-- Add items manually with **Add product to shoppinglist** (pick a product and quantity), use
-  the **Quick add** tab, or let **Auto-Add** populate it when stock runs low.
+- Add items with the **Add item** button, which opens the **Quick add** tab (tap products to
+  toggle them on the list). **Auto-Add** can also populate the list automatically when stock
+  runs low.
 - Adjust quantities with **+ / –**, edit, or delete rows.
 - When the shopping list contains items, the cart icon is highlighted (styling cue).
 
