@@ -1,0 +1,19 @@
+# Build-time / workspace files (not part of the installable solution)
+backups/
+project.json
+.github/copilot-instructions.md
+
+# Copilot CLI local working state
+.copilot/
+
+# Playwright MCP artifacts (console logs + page snapshots)
+.playwright-mcp/
+
+# SQLite databases (runtime data, not source)
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc

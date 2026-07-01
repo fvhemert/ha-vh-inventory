@@ -1,0 +1,61 @@
+# VH-Woonkamer theme
+VH-Woonkamer:
+  vh-dashboard-gradient: "#000000"
+  ha-card-background: "linear-gradient(180deg, #2d2d32 0%, #1e1e22 100%)"
+  card-background-color: "#1e1e22"
+  vh-card-background: "linear-gradient(180deg, #2d2d32 0%, #1e1e22 100%)"
+  vh-card-background-hover: "linear-gradient(180deg, #3a3a40 0%, #2a2a2e 100%)"
+  vh-popup-bg-color: "#1a4a5e"
+  vh-popup-bg-opacity: 85
+  vh-popup-bg-blur: 10
+  vh-popup-auto-close: 6000
+  ha-card-border-radius: 0px
+  vh-card-radius: 0px
+  vh-card-border: "1px solid rgba(255, 255, 255, 0.25)"
+  vh-card-border-subtle: "1px solid rgba(255, 255, 255, 0.1)"
+  vh-card-border-faint: "1px solid rgba(255, 255, 255, 0.06)"
+  vh-border-none: none
+  vh-backdrop-blur: "blur(10px)"
+  vh-font-size-primary: 13px
+  vh-font-size-secondary: 12px
+  vh-font-size-small: 11px
+  vh-font-size-large: 15px
+  vh-font-weight-bold: bold
+  vh-font-weight-medium: 500
+  vh-button-padding: 12px 8px
+  vh-card-padding: 16px
+  vh-card-padding-compact: 16px 12px
+  primary-text-color: "rgba(230, 230, 230, 1)"
+  secondary-text-color: "rgba(200, 200, 200, 0.9)"
+  vh-text-primary: "rgba(230, 230, 230, 1)"
+  vh-text-secondary: "rgba(200, 200, 200, 0.9)"
+  vh-text-tertiary: "rgba(180, 180, 180, 0.8)"
+  vh-text-muted: "rgba(255, 255, 255, 0.5)"
+  vh-icon-active: "var(--amber-color, #ffc107)"
+  vh-icon-inactive: "rgba(255, 255, 255, 0.5)"
+  vh-icon-white: "rgba(255, 255, 255, 0.9)"
+  vh-background-on: "rgba(255, 193, 7, 0.2)"
+  vh-background-off: "var(--ha-card-background)"
+  vh-icon-on: "#ffc107"
+  vh-icon-off: "rgba(255, 255, 255, 0.5)"
+  vh-name-on: "rgba(255, 255, 255, 1)"
+  vh-name-off: "rgba(230, 230, 230, 1)"
+  vh-label-on: "#ffc107"
+  vh-label-off: "rgba(200, 200, 200, 0.9)"
+  vh-state-on: "#ffc107"
+  vh-state-off: "rgba(200, 200, 200, 0.9)"
+  vh-airco-cool: "rgba(33, 150, 243, 0.3)"
+  vh-airco-heat: "rgba(255, 87, 34, 0.3)"
+  vh-alert-red: "#ff1744"
+  vh-alert-orange: "#ff9100"
+  amber-color: "#ffc107"
+  vh-accent-blue: "#2196F3"
+  vh-table-header-color: "#4dabf5"
+  vh-accent-teal: "#009688"
+  vh-accent-orange: "#FF9800"
+  vh-slider-border: "1px solid rgba(255, 255, 255, 0.15)"
+  vh-slider-radius: 0px
+  ha-view-sections-column-gap: 4px
+  ha-view-sections-row-gap: 4px
+  ha-section-grid-row-gap: 4px
+  ha-section-grid-column-gap: 4px

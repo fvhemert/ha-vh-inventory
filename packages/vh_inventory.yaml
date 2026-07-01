@@ -1,0 +1,626 @@
+# VH-Inventory input helpers (portable). Include via configuration.yaml:
+#   packages: { vh_inventory: !include packages/vh_inventory.yaml }
+input_text:
+  vh_product_barcode:
+    name: VH Product Barcode
+  vh_product_name:
+    name: VH Product Name
+  vh_product_description:
+    name: VH Product Description
+  vh_product_manufacturer:
+    name: VH Product Manufacturer
+  vh_product_unit:
+    name: VH Product Unit
+  vh_new_location:
+    name: VH New Location
+  vh_new_category:
+    name: VH New Category
+  vh_new_store:
+    name: VH New Store
+  vh_scan_barcode:
+    name: VH Scan Barcode
+  vh_edit_product_id:
+    name: VH Edit Product Id
+  vh_edit_location_id:
+    name: VH Edit Location Id
+  vh_edit_category_id:
+    name: VH Edit Category Id
+  vh_edit_store_id:
+    name: VH Edit Store Id
+  vh_edit_inventory_id:
+    name: VH Edit Inventory Id
+  vh_edit_shopping_id:
+    name: VH Edit Shopping Id
+  vh_pending_scan_id:
+    name: VH Pending Scan Id
+  vh_inventory_search:
+    name: VH Inventory Search
+  vh_products_search:
+    name: VH Products Search
+  vh_addlist_search:
+    name: VH Add-List Search
+
+template:
+  # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
+  # Accent- and case-insensitive substring match on the product name via the
+  # strip_accents macro, so e.g. "cafe" matches "Caffè" and "maiswafel" matches
+  # "maïswafels". Re-renders when the search box or the stock sensor changes.
+  - trigger:
+      - trigger: state
+        entity_id:
+          - input_text.vh_inventory_search
+          - input_select.vh_print_category
+          - sensor.vh_inventory_stock
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: VH Inventory Stock Filtered
+        unique_id: vh_inventory_stock_filtered
+        icon: mdi:clipboard-list-outline
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_inventory_search')) | trim %}
+          {% set cat = states('input_select.vh_print_category') %}
+          {% set items = state_attr('sensor.vh_inventory_stock','inventory') or [] %}
+          {% set ns = namespace(count=0) %}
+          {% for item in items %}
+            {% if (search == '' or search in strip_accents(item.product) | trim)
+                  and (cat in ['All','','unknown','unavailable'] or (item.category or '') == cat) %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        attributes:
+          inventory: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_inventory_search')) | trim %}
+            {% set cat = states('input_select.vh_print_category') %}
+            {% set items = state_attr('sensor.vh_inventory_stock','inventory') or [] %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for item in items %}
+              {% if (search == '' or search in strip_accents(item.product) | trim)
+                    and (cat in ['All','','unknown','unavailable'] or (item.category or '') == cat) %}
+                {% set ns.filtered = ns.filtered + [item] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+  # Products filter (separate search helper so it does NOT share state with the
+  # Inventory search). Same accent-insensitive strip_accents matching on name.
+  - trigger:
+      - trigger: state
+        entity_id:
+          - input_text.vh_products_search
+          - sensor.vh_inventory_products
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: VH Inventory Products Filtered
+        unique_id: vh_inventory_products_filtered
+        icon: mdi:package-variant
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_products_search')) | trim %}
+          {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+          {% if search == '' %}
+            {{ items | length }}
+          {% else %}
+            {% set ns = namespace(count=0) %}
+            {% for item in items %}
+              {% if search in strip_accents(item.name) | trim %}
+                {% set ns.count = ns.count + 1 %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.count }}
+          {% endif %}
+        attributes:
+          products: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_products_search')) | trim %}
+            {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+            {% if search == '' %}
+              {{ items }}
+            {% else %}
+              {% set ns = namespace(filtered=[]) %}
+              {% for item in items %}
+                {% if search in strip_accents(item.name) | trim %}
+                  {% set ns.filtered = ns.filtered + [item] %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.filtered }}
+            {% endif %}
+
+  # Add-tab product filter (own search helper). Same accent-insensitive name
+  # match as the Products filter; passes through full product dicts (incl.
+  # on_shopping) so the button grid can colour each button. Re-renders when the
+  # search box or the products sensor (which carries on_shopping) changes.
+  - trigger:
+      - trigger: state
+        entity_id:
+          - input_text.vh_addlist_search
+          - sensor.vh_inventory_products
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: VH Inventory Add-List Filtered
+        unique_id: vh_inventory_addlist_filtered
+        icon: mdi:cart-plus
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_addlist_search')) | trim %}
+          {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+          {% if search == '' %}
+            {{ items | length }}
+          {% else %}
+            {% set ns = namespace(count=0) %}
+            {% for item in items %}
+              {% if search in strip_accents(item.name) | trim %}
+                {% set ns.count = ns.count + 1 %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.count }}
+          {% endif %}
+        attributes:
+          products: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_addlist_search')) | trim %}
+            {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+            {% if search == '' %}
+              {{ items }}
+            {% else %}
+              {% set ns = namespace(filtered=[]) %}
+              {% for item in items %}
+                {% if search in strip_accents(item.name) | trim %}
+                  {% set ns.filtered = ns.filtered + [item] %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.filtered }}
+            {% endif %}
+
+input_boolean:
+  vh_product_auto_add_enabled:
+    name: VH Product Auto-Add Enabled
+  vh_show_id_columns:
+    name: VH Show ID Columns
+    icon: mdi:identifier
+
+input_select:
+  vh_language:
+    name: Language
+    icon: mdi:translate
+    options:
+      - English
+      - Nederlands
+    initial: English
+  vh_product_category:
+    name: VH Product Category
+    options: ["(none)"]
+  vh_product_store:
+    name: VH Product Store
+    options: ["(none)"]
+  vh_inv_product:
+    name: VH Inventory Product
+    options: ["(none)"]
+  vh_inv_location:
+    name: VH Inventory Location
+    options: ["(none)"]
+  vh_shop_product:
+    name: VH Shopping Product
+    options: ["(none)"]
+  vh_print_category:
+    name: VH Print Category
+    icon: mdi:shape
+    options: ["All"]
+    initial: All
+
+input_number:
+  vh_product_auto_add_threshold:
+    name: VH Product Auto-Add Threshold
+    min: 0
+    max: 999
+    step: 1
+    mode: box
+    initial: 1
+  vh_product_auto_add_quantity:
+    name: VH Product Auto-Add Quantity
+    min: 1
+    max: 999
+    step: 1
+    mode: box
+    initial: 1
+  vh_inv_quantity:
+    name: VH Inventory Quantity
+    min: 0
+    max: 99999
+    step: 1
+    mode: box
+    initial: 1
+  vh_shop_quantity:
+    name: VH Shopping Quantity
+    min: 0
+    max: 99999
+    step: 1
+    mode: box
+    initial: 1
+
+script:
+  vh_save_product:
+    alias: VH Save Product
+    sequence:
+      - service: pyscript.vh_inventory_add_product
+        data:
+          name: "{{ states('input_text.vh_product_name') }}"
+          barcode: "{{ states('input_text.vh_product_barcode') }}"
+          description: "{{ states('input_text.vh_product_description') }}"
+          manufacturer: "{{ states('input_text.vh_product_manufacturer') }}"
+          unit: "{{ states('input_text.vh_product_unit') }}"
+          auto_add_enabled: "{{ 1 if is_state('input_boolean.vh_product_auto_add_enabled','on') else 0 }}"
+          auto_add_threshold: "{{ states('input_number.vh_product_auto_add_threshold')|int }}"
+          auto_add_quantity: "{{ states('input_number.vh_product_auto_add_quantity')|int }}"
+          category: "{{ states('input_select.vh_product_category') }}"
+          store: "{{ states('input_select.vh_product_store') }}"
+      - service: input_text.set_value
+        target: {entity_id: [input_text.vh_product_name, input_text.vh_product_barcode, input_text.vh_product_description, input_text.vh_product_manufacturer, input_text.vh_product_unit]}
+        data: {value: ""}
+  vh_save_resolved_product:
+    alias: VH Save Resolved Product
+    sequence:
+      - service: pyscript.vh_inventory_save_resolved
+        data:
+          name: "{{ states('input_text.vh_product_name') }}"
+          barcode: "{{ states('input_text.vh_product_barcode') }}"
+          description: "{{ states('input_text.vh_product_description') }}"
+          manufacturer: "{{ states('input_text.vh_product_manufacturer') }}"
+          unit: "{{ states('input_text.vh_product_unit') }}"
+          auto_add_enabled: "{{ 1 if is_state('input_boolean.vh_product_auto_add_enabled','on') else 0 }}"
+          auto_add_threshold: "{{ states('input_number.vh_product_auto_add_threshold')|int }}"
+          auto_add_quantity: "{{ states('input_number.vh_product_auto_add_quantity')|int }}"
+          category: "{{ states('input_select.vh_product_category') }}"
+          store: "{{ states('input_select.vh_product_store') }}"
+      - service: input_text.set_value
+        target: {entity_id: [input_text.vh_product_name, input_text.vh_product_barcode, input_text.vh_product_description, input_text.vh_product_manufacturer, input_text.vh_product_unit, input_text.vh_pending_scan_id]}
+        data: {value: ""}
+  vh_save_location:
+    alias: VH Save Location
+    sequence:
+      - service: pyscript.vh_inventory_add_location
+        data: {location: "{{ states('input_text.vh_new_location') }}"}
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_location}
+        data: {value: ""}
+  vh_save_category:
+    alias: VH Save Category
+    sequence:
+      - service: pyscript.vh_inventory_add_category
+        data: {category: "{{ states('input_text.vh_new_category') }}"}
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_category}
+        data: {value: ""}
+  vh_save_store:
+    alias: VH Save Store
+    sequence:
+      - service: pyscript.vh_inventory_add_store
+        data: {store: "{{ states('input_text.vh_new_store') }}"}
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_store}
+        data: {value: ""}
+  vh_scan_add:
+    alias: VH Scan Add
+    sequence:
+      - service: pyscript.vh_inventory_scan_enqueue
+        data:
+          barcode: "{{ states('input_text.vh_scan_barcode') }}"
+          action: Add
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_scan_barcode}
+        data: {value: ""}
+  vh_scan_use:
+    alias: VH Scan Use
+    sequence:
+      - service: pyscript.vh_inventory_scan_enqueue
+        data:
+          barcode: "{{ states('input_text.vh_scan_barcode') }}"
+          action: Use
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_scan_barcode}
+        data: {value: ""}
+  vh_update_product:
+    alias: VH Update Product
+    sequence:
+      - service: pyscript.vh_inventory_update_product
+        data:
+          id: "{{ states('input_text.vh_edit_product_id') }}"
+          name: "{{ states('input_text.vh_product_name') }}"
+          barcode: "{{ states('input_text.vh_product_barcode') }}"
+          description: "{{ states('input_text.vh_product_description') }}"
+          manufacturer: "{{ states('input_text.vh_product_manufacturer') }}"
+          unit: "{{ states('input_text.vh_product_unit') }}"
+          auto_add_enabled: "{{ 1 if is_state('input_boolean.vh_product_auto_add_enabled','on') else 0 }}"
+          auto_add_threshold: "{{ states('input_number.vh_product_auto_add_threshold')|int }}"
+          auto_add_quantity: "{{ states('input_number.vh_product_auto_add_quantity')|int }}"
+          category: "{{ states('input_select.vh_product_category') }}"
+          store: "{{ states('input_select.vh_product_store') }}"
+  vh_update_location:
+    alias: VH Update Location
+    sequence:
+      - service: pyscript.vh_inventory_update_simple
+        data:
+          table: locations
+          id: "{{ states('input_text.vh_edit_location_id') }}"
+          value: "{{ states('input_text.vh_new_location') }}"
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_location}
+        data: {value: ""}
+  vh_update_category:
+    alias: VH Update Category
+    sequence:
+      - service: pyscript.vh_inventory_update_simple
+        data:
+          table: categories
+          id: "{{ states('input_text.vh_edit_category_id') }}"
+          value: "{{ states('input_text.vh_new_category') }}"
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_category}
+        data: {value: ""}
+  vh_update_store:
+    alias: VH Update Store
+    sequence:
+      - service: pyscript.vh_inventory_update_simple
+        data:
+          table: stores
+          id: "{{ states('input_text.vh_edit_store_id') }}"
+          value: "{{ states('input_text.vh_new_store') }}"
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_store}
+        data: {value: ""}
+  vh_save_inventory:
+    alias: VH Save Inventory
+    sequence:
+      - service: pyscript.vh_inventory_add_stock
+        data:
+          product: "{{ states('input_select.vh_inv_product') }}"
+          location: "{{ states('input_select.vh_inv_location') }}"
+          quantity: "{{ states('input_number.vh_inv_quantity')|int }}"
+  vh_update_inventory:
+    alias: VH Update Inventory
+    sequence:
+      - service: pyscript.vh_inventory_update_stock
+        data:
+          id: "{{ states('input_text.vh_edit_inventory_id') }}"
+          product: "{{ states('input_select.vh_inv_product') }}"
+          location: "{{ states('input_select.vh_inv_location') }}"
+          quantity: "{{ states('input_number.vh_inv_quantity')|int }}"
+  vh_save_shopping:
+    alias: VH Save Shopping
+    sequence:
+      - service: pyscript.vh_inventory_add_shop
+        data:
+          product: "{{ states('input_select.vh_shop_product') }}"
+          quantity: "{{ states('input_number.vh_shop_quantity')|int }}"
+  vh_update_shopping:
+    alias: VH Update Shopping
+    sequence:
+      - service: pyscript.vh_inventory_update_shop
+        data:
+          id: "{{ states('input_text.vh_edit_shopping_id') }}"
+          product: "{{ states('input_select.vh_shop_product') }}"
+          quantity: "{{ states('input_number.vh_shop_quantity')|int }}"
+  vh_reset_inv_add:
+    alias: VH Reset Inventory Add
+    sequence:
+      - service: input_select.select_first
+        target: {entity_id: [input_select.vh_inv_product, input_select.vh_inv_location]}
+      - service: input_number.set_value
+        target: {entity_id: input_number.vh_inv_quantity}
+        data: {value: 1}
+  vh_reset_shopping_add:
+    alias: VH Reset Shopping Add
+    sequence:
+      - service: input_select.select_first
+        target: {entity_id: input_select.vh_shop_product}
+      - service: input_number.set_value
+        target: {entity_id: input_number.vh_shop_quantity}
+        data: {value: 1}
+  vh_reset_product_add:
+    alias: VH Reset Product Add
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id:
+            - input_text.vh_product_name
+            - input_text.vh_product_barcode
+            - input_text.vh_product_manufacturer
+            - input_text.vh_product_unit
+            - input_text.vh_product_description
+        data: {value: ""}
+      - service: input_select.select_first
+        target: {entity_id: [input_select.vh_product_category, input_select.vh_product_store]}
+      - service: input_boolean.turn_off
+        target: {entity_id: input_boolean.vh_product_auto_add_enabled}
+      - service: input_number.set_value
+        target:
+          entity_id:
+            - input_number.vh_product_auto_add_threshold
+            - input_number.vh_product_auto_add_quantity
+        data: {value: 1}
+  vh_reset_location_add:
+    alias: VH Reset Location Add
+    sequence:
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_location}
+        data: {value: ""}
+  vh_reset_category_add:
+    alias: VH Reset Category Add
+    sequence:
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_category}
+        data: {value: ""}
+  vh_reset_store_add:
+    alias: VH Reset Store Add
+    sequence:
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_new_store}
+        data: {value: ""}
+  vh_print_shopping_list:
+    alias: VH Print Shopping List
+    description: >-
+      Print the VH-Inventory shopping list to the Epson TM-T20II (ESC/POS)
+      thermal printer, grouped per store (bold store header + its items). Items
+      whose product has no store or store "All" go under a final "Algemeen"
+      section. Reads sensor.vh_inventory_shopping and sensor.vh_inventory_products.
+    sequence:
+      - service: escpos_printer.print_text
+        data:
+          text: ' '
+          cut: none
+          feed: 1
+      - service: escpos_printer.print_text
+        data:
+          text: Boodschappenlijst
+          bold: true
+          width: double
+          height: double
+          align: center
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: |-
+            {%- set shopping = state_attr('sensor.vh_inventory_shopping','shopping') or [] -%}
+            {%- set products = state_attr('sensor.vh_inventory_products','products') or [] -%}
+            {%- set stores = state_attr('sensor.vh_inventory_stores','stores') or [] -%}
+            {%- set out = namespace(lines=[]) -%}
+            {%- set order = namespace(list=[]) -%}
+            {%- for s in stores if s.store != 'All' -%}{%- set order.list = order.list + [s.store] -%}{%- endfor -%}
+            {%- set order.list = order.list + ['Algemeen'] -%}
+            {%- for gname in order.list -%}
+              {%- set sect = namespace(items=[]) -%}
+              {%- for it in shopping -%}
+                {%- set st = (products|selectattr('id','eq',it.product_id)|map(attribute='store')|first|default('')) -%}
+                {%- set match = (st in ['','All']) if gname == 'Algemeen' else (st == gname) -%}
+                {%- if match -%}{%- set sect.items = sect.items + [ it.product ~ ((' (' ~ it.quantity ~ 'x)') if (it.quantity|int(1))>1 else '') ] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- if sect.items | length > 0 -%}
+                {%- if out.lines | length > 0 -%}{%- set out.lines = out.lines + [''] -%}{%- endif -%}
+                {%- set out.lines = out.lines + [ gname ] + [ '-' * 44 ] -%}
+                {%- for label in sect.items -%}
+                  {%- set words = label.split(' ') -%}
+                  {%- set ws = namespace(lines=[], current=[], current_length=0) -%}
+                  {%- for word in words -%}
+                    {%- if ws.current_length == 0 -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}
+                    {%- elif ws.current_length + 1 + (word | length) <= 44 -%}{%- set ws.current = ws.current + [word] -%}{%- set ws.current_length = ws.current_length + 1 + (word | length) -%}
+                    {%- else -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- if ws.current | length > 0 -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- endif -%}
+                  {%- for line in ws.lines -%}
+                    {%- if loop.first -%}{%- set out.lines = out.lines + ['■ ' ~ line] -%}{%- else -%}{%- set out.lines = out.lines + ['  ' ~ line] -%}{%- endif -%}
+                  {%- endfor -%}
+                {%- endfor -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ out.lines | join('\n') }}
+          cut: none
+          feed: 2
+          width: normal
+          height: normal
+      - service: escpos_printer.print_text
+        data:
+          text: |-
+            ■ ___________________________________________
+
+            ■ ___________________________________________
+
+            ■ ___________________________________________
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: "Afgedrukt op {{ now().strftime('%d-%m-%Y %H:%M') }}"
+          align: center
+          cut: partial
+          feed: 2
+  vh_print_inventory:
+    alias: VH Print Inventory
+    description: >-
+      Print the VH-Inventory stock list to the Epson TM-T20II (ESC/POS) thermal
+      printer, grouped per category (category header + its items with quantity).
+      Honours input_select.vh_print_category: "All" prints every category,
+      otherwise only the selected one. Products with no category go under a final
+      "Algemeen" section. Reads sensor.vh_inventory_stock and
+      sensor.vh_inventory_products.
+    sequence:
+      - service: escpos_printer.print_text
+        data:
+          text: ' '
+          cut: none
+          feed: 1
+      - service: escpos_printer.print_text
+        data:
+          text: Voorraad
+          bold: true
+          width: double
+          height: double
+          align: center
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: |-
+            {%- set inv = state_attr('sensor.vh_inventory_stock','inventory') or [] -%}
+            {%- set products = state_attr('sensor.vh_inventory_products','products') or [] -%}
+            {%- set cats = state_attr('sensor.vh_inventory_categories','categories') or [] -%}
+            {%- set sel = states('input_select.vh_print_category') -%}
+            {%- set out = namespace(lines=[]) -%}
+            {%- set order = namespace(list=[]) -%}
+            {%- for c in cats -%}{%- set order.list = order.list + [c.category] -%}{%- endfor -%}
+            {%- set order.list = order.list + ['Algemeen'] -%}
+            {%- for gname in order.list -%}
+              {%- if sel in ['All',''] or sel == gname -%}
+                {%- set sect = namespace(items=[]) -%}
+                {%- for it in inv -%}
+                  {%- set ct = (products|selectattr('id','eq',it.product_id)|map(attribute='category')|first|default('')) -%}
+                  {%- set match = (ct == '') if gname == 'Algemeen' else (ct == gname) -%}
+                  {%- if match -%}{%- set sect.items = sect.items + [ it.product ~ ' (' ~ it.quantity ~ ')' ] -%}{%- endif -%}
+                {%- endfor -%}
+                {%- if sect.items | length > 0 -%}
+                  {%- if out.lines | length > 0 -%}{%- set out.lines = out.lines + [''] -%}{%- endif -%}
+                  {%- set out.lines = out.lines + [ gname ] + [ '-' * 44 ] -%}
+                  {%- for label in sect.items -%}
+                    {%- set words = label.split(' ') -%}
+                    {%- set ws = namespace(lines=[], current=[], current_length=0) -%}
+                    {%- for word in words -%}
+                      {%- if ws.current_length == 0 -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}
+                      {%- elif ws.current_length + 1 + (word | length) <= 44 -%}{%- set ws.current = ws.current + [word] -%}{%- set ws.current_length = ws.current_length + 1 + (word | length) -%}
+                      {%- else -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}{%- endif -%}
+                    {%- endfor -%}
+                    {%- if ws.current | length > 0 -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- endif -%}
+                    {%- for line in ws.lines -%}
+                      {%- if loop.first -%}{%- set out.lines = out.lines + ['■ ' ~ line] -%}{%- else -%}{%- set out.lines = out.lines + ['  ' ~ line] -%}{%- endif -%}
+                    {%- endfor -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ out.lines | join('\n') }}
+          cut: none
+          feed: 2
+          width: normal
+          height: normal
+      - service: escpos_printer.print_text
+        data:
+          text: "Afgedrukt op {{ now().strftime('%d-%m-%Y %H:%M') }}"
+          align: center
+          cut: partial
+          feed: 2

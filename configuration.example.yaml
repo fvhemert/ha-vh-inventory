@@ -1,0 +1,52 @@
+# =============================================================================
+# VH-Inventory - required additions to your Home Assistant configuration.yaml
+# =============================================================================
+# This file is a REFERENCE, not a drop-in. Merge the blocks below into your
+# existing /config/configuration.yaml.
+#
+# Design: every piece of the solution's own configuration (input helpers,
+# scripts, template sensors) lives in the dedicated package file
+#   packages/vh_inventory.yaml
+# Your configuration.yaml only needs to LINK to that file plus the one
+# system-level recorder tweak described in block 3.
+# -----------------------------------------------------------------------------
+
+# 1) Backend: enable pyscript and allow the imports the app uses for online
+#    barcode lookups (requests). Apps are auto-discovered from
+#    /config/pyscript/apps/, so the VH-Inventory backend loads automatically.
+pyscript:
+  allow_all_imports: true
+  apps: {}
+
+# 2) Load the VH-Inventory package. This is the dedicated solution file that
+#    contains ALL of the solution's helpers, scripts and template sensors.
+#    configuration.yaml only links to it - nothing solution-specific is
+#    defined inline here.
+homeassistant:
+  packages:
+    vh_inventory: !include packages/vh_inventory.yaml
+    # Alternative: load every file in /config/packages automatically with
+    #   packages: !include_dir_named packages
+
+# 3) REQUIRED recorder change.
+#    The VH-Inventory carrier sensors (sensor.vh_inventory_*) each store their
+#    full table as a state ATTRIBUTE and are rewritten on every mutation. The
+#    SQLite database (vh_inventory.db) is the source of truth, so recording
+#    their state history has no value and would bloat the recorder database
+#    (and trip Home Assistant's 16 KB attribute warning).
+#
+#    IMPORTANT: recorder is a single-instance integration - it MUST be a
+#    top-level key in configuration.yaml and CANNOT be placed inside a package
+#    file. If you already have a `recorder:` block, merge the `exclude` below
+#    into it instead of adding a second `recorder:` key. recorder config is
+#    only read at startup, so RESTART Home Assistant after this change (there
+#    is no live reload).
+recorder:
+  exclude:
+    entity_globs:
+      - sensor.vh_inventory_*
+
+# 4) OPTIONAL - only if you use the bundled VH-Woonkamer theme. Skip this
+#    block if you already load themes elsewhere (it can be declared only once).
+frontend:
+  themes: !include_dir_merge_named themes
