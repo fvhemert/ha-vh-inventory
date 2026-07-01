@@ -286,31 +286,33 @@ Lovelace API under URL path `/vh-inventory`.
 ### External services used (barcode resolution)
 
 The backend resolves unknown barcodes online via these public APIs (requires outbound
-internet from HA). **All are free and require no API key** — they only need the descriptive
-`User-Agent` the backend already sends. There is therefore nothing to license or store for a
-default install.
+internet from HA). The Open\*Facts providers and the UPC Item DB trial are **free and keyless**.
+**upcdatabase.org** is optional — supply a free API key to enable it for wider coverage.
 
 | Provider | Base URL | API key |
 |---|---|---|
 | Open Food Facts | `https://world.openfoodfacts.org` | None — open, keyless |
 | Open Beauty Facts | `https://world.openbeautyfacts.org` | None — open, keyless |
 | Open Pet Food Facts | `https://world.openpetfoodfacts.org` | None — open, keyless |
+| upcdatabase.org | `https://api.upcdatabase.org/product/` | Optional — free key, enables the provider |
 | UPC Item DB (trial) | `https://api.upcitemdb.com/prod/trial/lookup` | None, but limited to ~100 lookups/day |
+
+**Resolution order:** Open Food/Beauty/Pet Facts → upcdatabase.org (only when a key is
+configured) → UPC Item DB trial. Without a key the app skips upcdatabase.org and still works
+using the keyless providers, so a default install needs nothing licensed or stored.
 
 ### API keys & secrets (optional)
 
-A default install needs **no keys**. The only provider that offers one is **UPC Item DB**: a
-free account raises the trial's ~100/day limit. Register at
-<https://www.upcitemdb.com/api/explorer> to get a `user_key`.
+A default install needs **no keys**. To enable **upcdatabase.org**, register a free account at
+<https://www.upcdatabase.org/> to get an API key.
 
-If you add any keyed provider, store the key the Home-Assistant way — never inline it in a
-package or the app code:
+Store the key the Home-Assistant way — never inline it in a package or the app code:
 
 1. Put the secret in `/config/secrets.yaml`:
 
    ```yaml
    # /config/secrets.yaml
-   upcitemdb_user_key: "your-key-here"
+   upcdb_api: "your-key-here"
    ```
 
 2. Hand it to the pyscript app through its config block in `configuration.yaml` (or a
@@ -322,11 +324,13 @@ package or the app code:
      allow_all_imports: true
      apps:
        vh_inventory:
-         upcitemdb_user_key: !secret upcitemdb_user_key
+         upcdb_url_base: https://api.upcdatabase.org/product/
+         upcdb_api_key: !secret upcdb_api
    ```
 
-   The app reads its config from `pyscript.app_config`. (The bundled backend uses only the
-   keyless endpoints, so this block is inert until keyed-provider support is added.)
+   The app reads its config from `pyscript.app_config`. When `upcdb_api_key` is present the
+   backend queries upcdatabase.org after the keyless Open\*Facts providers; when it is absent
+   that provider is simply skipped.
 
 `/config/secrets.yaml` is the single, standard location for all Home Assistant secrets; keep
 it out of any backup or repository you share.

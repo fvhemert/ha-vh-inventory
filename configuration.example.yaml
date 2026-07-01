@@ -14,9 +14,15 @@
 # 1) Backend: enable pyscript and allow the imports the app uses for online
 #    barcode lookups (requests). Apps are auto-discovered from
 #    /config/pyscript/apps/, so the VH-Inventory backend loads automatically.
+#    The vh_inventory app block is OPTIONAL: add it only to enable the
+#    upcdatabase.org provider with a free API key (see docs/INSTALLATION.md 9).
+#    Without it the app still works using the keyless providers.
 pyscript:
   allow_all_imports: true
-  apps: {}
+  apps:
+    vh_inventory:
+      upcdb_url_base: https://api.upcdatabase.org/product/
+      upcdb_api_key: !secret upcdb_api   # store the key in /config/secrets.yaml
 
 # 2) Load the VH-Inventory package. This is the dedicated solution file that
 #    contains ALL of the solution's helpers, scripts and template sensors.

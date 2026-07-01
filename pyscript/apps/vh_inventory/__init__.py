@@ -1,5 +1,6 @@
 import sqlite3
 import datetime
+import json
 
 import requests
 
@@ -766,6 +767,16 @@ _OFF_PROVIDERS = [
 ]
 _OFF_FIELDS = "product_name,brands,categories,generic_name,quantity,image_url"
 _UPC_URL = "https://api.upcitemdb.com/prod/trial/lookup"
+_UPCDB_URL_BASE = "https://api.upcdatabase.org/product/"
+
+
+def _cfg(key, default=""):
+    """Read a value from this pyscript app's config block, safely."""
+    try:
+        val = pyscript.app_config.get(key)
+    except Exception:
+        return default
+    return default if val in (None, "") else val
 
 
 def _resolve_barcode(bc):
@@ -774,6 +785,9 @@ def _resolve_barcode(bc):
         res = _lookup_off(name, base, bc)
         if res:
             return res
+    res = _lookup_upcdb(bc)
+    if res:
+        return res
     return _lookup_upc(bc)
 
 
@@ -862,6 +876,57 @@ def _lookup_upc(bc):
     size = (it.get("size") or "").strip()
     if size:
         out["unit"] = size
+    return out
+
+
+def _lookup_upcdb(bc):
+    """upcdatabase.org lookup (only runs when upcdb_api_key is configured)."""
+    key = _cfg("upcdb_api_key")
+    if not key:
+        return None
+    base = _cfg("upcdb_url_base", _UPCDB_URL_BASE)
+    url = "%s%s?apikey=%s" % (base, bc, key)
+    try:
+        r = task.executor(requests.get, url,
+                          headers={"User-Agent": _HTTP_UA,
+                                   "Accept": "application/json"},
+                          timeout=_HTTP_TIMEOUT)
+    except Exception as e:
+        log.debug("vh_inventory upcdatabase lookup failed for %s (%s)" % (bc, e))
+        return None
+    if r.status_code != 200:
+        return None
+    text = r.text or ""
+    start = text.find("{")
+    if start < 0:
+        return None
+    try:
+        data = json.loads(text[start:])
+    except Exception:
+        return None
+    if not data.get("success"):
+        return None
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = (data.get("alias") or "").strip()
+    if not title:
+        title = (data.get("description") or "").strip()
+    if not title:
+        return None
+    out = {"name": title, "provider": "upcdatabase"}
+    brand = (data.get("brand") or "").strip()
+    if brand:
+        out["manufacturer"] = brand
+    desc = (data.get("description") or "").strip()
+    if desc and desc != title:
+        out["description"] = desc
+    cat = (data.get("category") or "").strip()
+    if cat:
+        out["category"] = cat
+    meta = data.get("metadata") or {}
+    unit = str(meta.get("quantity") or meta.get("unit") or "").strip()
+    if unit:
+        out["unit"] = unit
     return out
 
 
