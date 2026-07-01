@@ -484,7 +484,7 @@ _addlist_btn = (
   "})()")
 
 addlist_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Add to List",
-  "entities": {"include": "sensor.vh_inventory_add_list_filtered"}, "css": GRID_CSS,
+  "entities": {"include": "sensor.vh_inventory_shopping_filtered"}, "css": GRID_CSS,
   "strict": True, "card_mod": GRID_CM, "_skip_flex_cm": True,
   "grid_options": {"columns": "full", "rows": "auto"},
   "columns": [{"name": "", "data": "products", "modify": _addlist_btn}]}
