@@ -290,6 +290,21 @@ def add_btn(hsh, label="Add"):
     return btn(label, {"action": "navigate", "navigation_path": "#%s" % hsh})
 
 
+# Index of the "Quick add" tab inside the tabbed card's `tabs` list (see the
+# `tabbed` assembly below; guarded by an assert there). Used by goto_tab_btn to
+# switch tabs programmatically via _GOTAB_JS instead of opening a popup.
+QUICK_ADD_TAB_INDEX = 2
+
+
+# A button that switches the tabbed card to another tab (by index) instead of
+# navigating to a popup hash. tap_action is "none"; the actual tab switch is done
+# by _GOTAB_JS, which reads the `vh_goto_tab` config key off the button-card.
+def goto_tab_btn(name, idx):
+    b = btn(name, {"action": "none"})
+    b["vh_goto_tab"] = idx
+    return b
+
+
 # Square icon-only button matching the search magnifier (border, glass background,
 # hover to the table-header blue). Used for the Inventory print-category action.
 def icon_action_btn(icon, action):
@@ -417,7 +432,6 @@ shop_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Shopping Li
     {"name": "Edit", "data": "shopping", "align": "center", "modify": edit_icon("shopping_list", "#vh-edit-shopping"), "_w": "56px"},
     {"name": "Del", "data": "shopping", "align": "center", "modify": del_icon("shopping_list"), "_w": "56px"}]}
 shop_rows = ["input_select.vh_shopping_product", "input_number.vh_shopping_quantity"]
-shop_add = popup("vh-add-shopping", "Add to Shopping List", "mdi:cart", shop_rows, "script.vh_save_shopping", "script.vh_reset_shopping_add")
 shop_edit = popup("vh-edit-shopping", "Edit Shopping Item", "mdi:cart", shop_rows, "script.vh_update_shopping")
 
 # ----- Products tab -----
@@ -517,13 +531,14 @@ def tab(label, icon, tbl, add_hash, *popups, add_label="Add"):
       "card": {"type": "vertical-stack", "cards": [add_btn(add_hash, add_label), tbl] + list(popups)}}
 
 
-def tab_boxed(label, icon, tbl, add_hash, *popups, add_label="Add", extra=None):
+def tab_boxed(label, icon, tbl, add_hash, *popups, add_label="Add", extra=None, nav_btn=None):
     """Like tab() but the Add button sits inside a single bordered background
     (WRAP_CM) and is shifted right (margin-left:16px) so its left edge lines up
     with the Add button on the search tabs (e.g. Inventory/Products). When
     `extra` (another button card) is given, it sits next to the Add button in a
-    horizontal row inside the same box."""
-    ab = add_btn(add_hash, add_label)
+    horizontal row inside the same box. When `nav_btn` is given it is used as the
+    button instead of a popup-opening Add button (e.g. a goto_tab_btn)."""
+    ab = nav_btn if nav_btn is not None else add_btn(add_hash, add_label)
     ab["styles"]["card"] += [{"margin-left": "16px"}]
     row = ab if extra is None else {"type": "horizontal-stack", "cards": [ab, extra]}
     box = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [row]}
@@ -715,8 +730,32 @@ _I18N_JS = (
   "if(e&&e.data&&e.data.entity_id==='input_select.vh_language')schedule();},'state_changed');}}catch(e){}"
   "}"
 )
+
+# Programmatic tab switch. A one-time capture-phase click listener: when a
+# button-card carrying a `vh_goto_tab` config key is clicked, it deep-searches
+# the shadow DOM for the tab elements (…-TAB) and clicks the one at that index.
+# Switching by index (not label) is language-proof, since _I18N_JS translates the
+# visible tab labels. Used by the Shopping tab's "Add item" button to open the
+# Quick add tab instead of a redundant popup.
+_GOTAB_JS = (
+  "if(!window.__vhGoTab){window.__vhGoTab=true;"
+  "function dqa(root,test){var out=[],q=[root];while(q.length){var n=q.shift();"
+  "var k=n.querySelectorAll?n.querySelectorAll('*'):[];"
+  "for(var i=0;i<k.length;i++){var el=k[i];if(test(el))out.push(el);"
+  "if(el.shadowRoot)q.push(el.shadowRoot);}}return out;}"
+  "function tabsList(){return dqa(document.body,function(el){"
+  "return el.tagName&&/-TAB$/.test(el.tagName);});}"
+  "document.addEventListener('click',function(e){"
+  "var p=e.composedPath?e.composedPath():[];"
+  "for(var i=0;i<p.length;i++){var el=p[i];"
+  "if(el&&el.localName==='button-card'){var c=el._config||el.config;"
+  "if(c&&c.vh_goto_tab!=null){var idx=c.vh_goto_tab;"
+  "setTimeout(function(){var t=tabsList();if(t[idx])t[idx].click();},60);}"
+  "break;}}"
+  "},true);}"
+)
 focus_boot = {"type": "custom:button-card", "show_name": False, "show_icon": False,
-  "show_label": True, "label": "[[[ " + _FOCUS_JS + _CLOSE_JS + _I18N_JS + " return ''; ]]]",
+  "show_label": True, "label": "[[[ " + _FOCUS_JS + _CLOSE_JS + _I18N_JS + _GOTAB_JS + " return ''; ]]]",
   "styles": {"card": [{"height": "0px"}, {"min-height": "0"}, {"padding": "0"},
     {"margin": "0"}, {"border": "none"}, {"box-shadow": "none"},
     {"overflow": "hidden"}, {"opacity": "0"}]}}
@@ -725,7 +764,7 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
   "card_mod": {"style": CART_RED}, "styles": TAB_STYLES,
   "tabs": [
     scan_tab,
-    tab_boxed("Shopping", "mdi:cart", shop_tbl, "vh-add-shopping", shop_add, shop_edit, add_label="Add item", extra=print_shopping_btn),
+    tab_boxed("Shopping", "mdi:cart", shop_tbl, None, shop_edit, add_label="Add item", extra=print_shopping_btn, nav_btn=goto_tab_btn("Add item", QUICK_ADD_TAB_INDEX)),
     addlist_tab,
     inv_tab,
     prod_tab,
@@ -734,6 +773,8 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
     tab_boxed("Stores", "mdi:store", sto_tbl, "vh-add-store", sto_add, sto_edit, add_label="Add new store"),
     hist_tab,
     setup_tab]}
+assert tabbed["tabs"][QUICK_ADD_TAB_INDEX] is addlist_tab, \
+  "QUICK_ADD_TAB_INDEX is out of sync with the tabs order"
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
   "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
   "sections": [{"type": "grid", "column_span": 4, "cards": [tabbed, focus_boot]}]}
