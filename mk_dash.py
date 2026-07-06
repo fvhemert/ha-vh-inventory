@@ -297,7 +297,7 @@ def add_btn(hsh, label="Add"):
 # Index of the "Quick add" tab inside the tabbed card's `tabs` list (see the
 # `tabbed` assembly below; guarded by an assert there). Used by goto_tab_btn to
 # switch tabs programmatically via _GOTAB_JS instead of opening a popup.
-QUICK_ADD_TAB_INDEX = 2
+QUICK_ADD_TAB_INDEX = 1
 
 
 # A button that switches the tabbed card to another tab (by index) instead of
@@ -769,7 +769,6 @@ focus_boot = {"type": "custom:button-card", "show_name": False, "show_icon": Fal
 tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns": "full", "rows": "auto"},
   "card_mod": {"style": CART_RED}, "styles": TAB_STYLES,
   "tabs": [
-    scan_tab,
     tab_boxed("Shopping", "mdi:cart", shop_tbl, None, shop_edit, add_label="Add item", extra=print_shopping_btn, nav_btn=goto_tab_btn("Add item", QUICK_ADD_TAB_INDEX)),
     addlist_tab,
     inv_tab,
@@ -777,6 +776,7 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
     tab_boxed("Locations", "mdi:map-marker", loc_tbl, "vh-add-location", loc_add, loc_edit, add_label="Add new location"),
     tab_boxed("Categories", "mdi:shape", cat_tbl, "vh-add-category", cat_add, cat_edit, add_label="Add new category"),
     tab_boxed("Stores", "mdi:store", sto_tbl, "vh-add-store", sto_add, sto_edit, add_label="Add new store"),
+    scan_tab,
     hist_tab,
     setup_tab]}
 assert tabbed["tabs"][QUICK_ADD_TAB_INDEX] is addlist_tab, \
