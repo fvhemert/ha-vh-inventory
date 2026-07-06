@@ -684,6 +684,8 @@ for _title, _rows in SCANNER_SETTINGS:
         _scn_cards.append(_scn_row(_lbl, _dom, _suf))
 scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
 
+lang_card["card_mod"] = FLAT_ENT_CM
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [lang_card, scanner_card]}}
 
