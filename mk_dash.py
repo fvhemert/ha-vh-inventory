@@ -599,7 +599,8 @@ for _t in (inv_tbl, shop_tbl, prod_tbl, loc_tbl, cat_tbl, sto_tbl, scan_tbl, his
 
 lang_card = {"type": "entities", "entities": [
   {"entity": "input_select.vh_language", "name": "Language", "icon": "mdi:translate"},
-  {"entity": "input_boolean.vh_show_id_columns", "name": "Show ID columns", "icon": "mdi:identifier"}]}
+  {"entity": "input_boolean.vh_show_id_columns", "name": "Show ID columns", "icon": "mdi:identifier"},
+  {"entity": "input_boolean.vh_kiosk_mode", "name": "Hide header (kiosk)", "icon": "mdi:fullscreen"}]}
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [lang_card]}}
 
@@ -831,5 +832,7 @@ ws.send(json.dumps({"id": 1, "type": "lovelace/config/save", "url_path": "vh-inv
   "config": {"title": "VH-Inventory", "resources": [
     {"url": "/hacsfiles/button-card/button-card.js", "type": "module"},
     {"url": "/hacsfiles/lovelace-card-mod/card-mod.js", "type": "module"}],
+    "kiosk_mode": {"entity_settings": [
+      {"entity": {"input_boolean.vh_kiosk_mode": "on"}, "hide_header": True}]},
     "views": [view]}}))
 print("save:", r().get("success")); ws.close()

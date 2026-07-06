@@ -195,6 +195,9 @@ input_boolean:
   vh_show_id_columns:
     name: VH Show ID Columns
     icon: mdi:identifier
+  vh_kiosk_mode:
+    name: VH Kiosk Mode
+    icon: mdi:fullscreen
 
 input_select:
   vh_language:
