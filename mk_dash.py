@@ -693,9 +693,11 @@ for _title, _rows in SCANNER_SETTINGS:
 scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
 
 lang_card["card_mod"] = LANG_CM
+app_settings_card = {"type": "vertical-stack", "card_mod": WRAP_CM,
+  "cards": [_scn_section("Application settings"), lang_card]}
 
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
-  "card": {"type": "vertical-stack", "cards": [lang_card, scanner_card]}}
+  "card": {"type": "vertical-stack", "cards": [app_settings_card, scanner_card]}}
 
 
 CART_RED = (
