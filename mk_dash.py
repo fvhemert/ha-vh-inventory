@@ -639,7 +639,8 @@ SCANNER_SETTINGS = [
 FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !important;"
   " box-shadow: none !important; } #states { padding: 0 !important; }"
   " .card-content { padding: 6px 8px !important; }"
-  " .type-entity { min-height: 40px !important; }"}
+  " .type-entity { background: transparent !important; border-radius: 0px !important;"
+  " box-shadow: none !important; min-height: 40px !important; }"}
 
 def _scn_label(text, header=False):
     weight = "bold" if header else "normal"
