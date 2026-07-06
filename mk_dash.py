@@ -61,7 +61,9 @@ WRAP_CM = {"style": ":host { border: var(--vh-card-border,1px solid rgba(255,255
                     " !important; padding: 8px !important; }"}
 SEARCH_CM = {"style": "ha-card { background: transparent !important; border: none"
                       " !important; box-shadow: none !important; padding: 0px !important; }"
-                      " #states { padding-top: 0px !important; }"}
+                      " #states { padding-top: 0px !important; }"
+                      " .type-entity { background: transparent !important;"
+                      " border-radius: 0px !important; box-shadow: none !important; }"}
 
 
 # Styles the search row's magnify/close state-badge into an icon button matching
@@ -93,7 +95,8 @@ def icon_btn_cm(entity):
     wa_css = (
         "[part~='form-control-label'] { display: none !important; }"
         " [part~='base'] { position: relative !important; min-height: 38px !important;"
-        " height: 38px !important; }"
+        " height: 38px !important; border-radius: var(--vh-card-radius,0px) !important;"
+        " background: transparent !important; }"
         " input[part~='input']::placeholder { color: transparent !important; }"
         " [part~='base']:has(input:placeholder-shown)::before {"
         " content: '(enter a search text)' !important; position: absolute !important;"
@@ -120,7 +123,8 @@ def scan_icon_cm(placeholder):
     wa_css = (
         "[part~='form-control-label'] { display: none !important; }"
         " [part~='base'] { position: relative !important; min-height: 38px !important;"
-        " height: 38px !important; }"
+        " height: 38px !important; border-radius: var(--vh-card-radius,0px) !important;"
+        " background: transparent !important; }"
         " input[part~='input']::placeholder { color: transparent !important; }"
         " [part~='base']:has(input:placeholder-shown)::before {"
         " content: '" + placeholder + "' !important; position: absolute !important;"
@@ -374,6 +378,8 @@ inv_cat_dd = {"type": "entities",
       "box-shadow:none!important;padding:0!important;width:190px!important;"
       "height:36px!important;box-sizing:border-box!important;}"
       " #states{padding:0!important;overflow:hidden!important;}"
+      " .type-entity{background:transparent!important;border-radius:0!important;"
+      "box-shadow:none!important;}"
       " .card-content{overflow:hidden!important;}",
     "hui-input-select-entity-row$": {
       "hui-generic-entity-row$": {
