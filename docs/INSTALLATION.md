@@ -139,6 +139,7 @@ The dashboard is built from several HACS **frontend** cards. Install each from
 | **flex-table-card** | `custom:flex-table-card` | All data tables (stock, products, scan queue, history…) |
 | **bubble-card** | `custom:bubble-card` | Add/Edit pop-up dialogs |
 | **tabbed-card** (programmable) | `custom:tabbed-card-programmable` | The tab bar across the top of the dashboard |
+| **kiosk-mode** | (global resource) | Hides the HA header when the *Hide header (kiosk)* toggle is on |
 
 > ⚠️ **Note on `tabbed-card-programmable`:** this is a *programmable* variant of the
 > tabbed-card resource. Install the tabbed-card resource that provides the
@@ -157,7 +158,13 @@ automatically). The two resources the dashboard registers itself are `button-car
 /hacsfiles/flex-table-card/flex-table-card.js  (module)
 /hacsfiles/bubble-card/bubble-card.js          (module)
 /hacsfiles/<tabbed-card>/<tabbed-card>.js       (module)
+/hacsfiles/kiosk-mode/kiosk-mode.js            (module)
 ```
+
+> **Kiosk-mode:** install **kiosk-mode** from **HACS → Frontend** (the current default is the
+> NemesisRE fork). It must be a **global** Lovelace resource so it loads on the VH-Inventory
+> dashboard. The dashboard sets `kiosk_mode.hide_header` to a Jinja template bound to
+> `input_boolean.vh_kiosk_mode`, so the header hides only while the Setup-tab toggle is on.
 
 *(Optional)* The default dashboard theme is **Mushroom Square Shadow Hemert** (a custom
 theme based on the Mushroom theme). Install the Mushroom theme via HACS if you want the
@@ -185,7 +192,8 @@ This creates, among others:
   `input_select.vh_language` (options *English*, *Nederlands*), and the inventory
   **print/filter category** `input_select.vh_print_category`.
 - Input numbers for auto-add threshold/quantity and stock quantities.
-- One `input_boolean.vh_product_auto_add_enabled` and `input_boolean.vh_show_id_columns`.
+- One `input_boolean.vh_product_auto_add_enabled`, `input_boolean.vh_show_id_columns`, and
+  `input_boolean.vh_kiosk_mode` (drives the *Hide header (kiosk)* toggle).
 - Scripts such as `script.vh_save_product`, `script.vh_scan_add`, `script.vh_scan_use`,
   `script.vh_save_resolved_product`, etc.
 - Printing scripts `script.vh_print_shopping` (per-store receipt) and
@@ -270,8 +278,8 @@ Lovelace API under URL path `/vh-inventory`.
    Expected output: `save: True`.
 
 5. Open the dashboard at `http://<your-ha>/vh-inventory/main`. You should see the tabbed
-   interface (Scan, Shopping list, Inventory, Products, Locations, Categories, Stores,
-   History, Setup).
+   interface (Shopping list, Quick add, Inventory, Products, Locations, Categories, Stores,
+   Scan, History, Setup).
 
 ---
 

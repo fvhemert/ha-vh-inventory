@@ -30,9 +30,10 @@ the shopping list at its configured **quantity**.
 
 ## 2. The dashboard at a glance
 
-The dashboard lives at `/vh-inventory/main` and is organised as a row of tabs. Each tab has
-an **Add** button (opens a pop-up), a data table, and per-row **Edit** / **Delete**
-controls.
+The dashboard lives at `/vh-inventory/main` and is organised as a row of tabs. Most tabs have
+an **Add** button (opens a pop-up), a data table, and per-row **Edit** / **Delete** controls.
+A **Woonkamer** button in the footer (right-aligned) jumps to the Woonkamer touchscreen
+dashboard.
 
 ![Scan tab](images/01-scan.png)
 
@@ -40,7 +41,6 @@ The tabs, left to right:
 
 | Tab | Purpose |
 |---|---|
-| **Scan** | Scan or type barcodes; Add/Use flow; resolve unknown items. |
 | **Shopping list** | Items to buy; print to a thermal receipt printer (grouped per store). |
 | **Quick add** | One-tap toggle of any product on/off the shopping list. |
 | **Inventory** | Current stock per product, category and location; filter and print by category. |
@@ -48,8 +48,9 @@ The tabs, left to right:
 | **Locations** | Storage locations. |
 | **Categories** | Product categories. |
 | **Stores** | Shops. |
-| **History** | Audit log of all changes. |
-| **Setup** | App settings: language selector and the *Show ID columns* toggle. |
+| **Scan** | Scan or type barcodes; Add/Use flow; resolve unknown items. |
+| **History** | Audit log of all changes (latest 50 shown). |
+| **Setup** | App settings: language selector, *Show ID columns*, and *Hide header (kiosk)* toggles. |
 
 ---
 
@@ -167,7 +168,8 @@ The **Shopping list** tab holds what you need to buy.
 - Add items with the **Add item** button, which opens the **Quick add** tab (tap products to
   toggle them on the list). **Auto-Add** can also populate the list automatically when stock
   runs low.
-- Adjust quantities with **+ / –**, edit, or delete rows.
+- Adjust quantities with the **+ / –** buttons. Pressing **–** on an item at quantity 1
+  removes it from the list (there are no separate edit/delete controls on this tab).
 - When the shopping list contains items, the cart icon is highlighted (styling cue).
 
 ### Printing the shopping list
@@ -231,12 +233,16 @@ when.
 
 ![History tab](images/08-history.png)
 
+The tab shows the **latest 50 entries**. Behind the scenes, history rows older than
+**3 months** are purged automatically, so the log stays a useful recent trail without
+growing without bound.
+
 ---
 
 ## 9. Settings & language (Setup tab)
 
-The **Setup** tab holds application settings: the **Language** selector and a **Show ID
-columns** toggle.
+The **Setup** tab holds application settings: the **Language** selector, a **Show ID
+columns** toggle, and a **Hide header (kiosk)** toggle.
 
 ![Setup tab](images/09-setup.png)
 
@@ -244,6 +250,13 @@ columns** toggle.
 
 Off by default. Turn it on to reveal the database **ID** column on every table (useful for
 troubleshooting or cross-referencing); toggling it updates all tables instantly.
+
+### Hide header (kiosk)
+
+Turns kiosk mode on/off for the VH-Inventory dashboard. When on, the Home Assistant top bar
+(header) is hidden for a clean, full-screen touchscreen view; when off, the header returns.
+The change applies live via the kiosk-mode plugin — the first time after install you may need
+a single hard refresh (Ctrl+F5).
 
 ### Switching language
 
@@ -273,6 +286,11 @@ Winkel, Bewerk, Verw., Toevoegen*) while the product data stays exactly as enter
   category (filtered to the selected category, or all). Both use the ESC/POS thermal printer.
 - **Pop-ups close on Save:** Add/Edit dialogs close themselves after a successful save.
 - **Cascade delete:** deleting a product cleans up its inventory and shopping-list rows.
+- **Shopping list:** pressing **–** at quantity 1 removes the item from the list.
+- **History retention:** the tab shows the latest 50 entries; rows older than 3 months are
+  purged automatically.
+- **Kiosk mode:** the *Hide header (kiosk)* toggle on the Setup tab shows/hides the HA top bar.
+- **Woonkamer button:** the right-aligned footer button jumps to the Woonkamer touchscreen.
 - **Duplicate-name guard:** locations, categories and stores must be unique.
 - **Self-healing data model:** the database and any new columns are created automatically;
   you never run SQL by hand.
