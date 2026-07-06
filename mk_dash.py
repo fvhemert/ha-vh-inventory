@@ -693,8 +693,8 @@ _scn_cards = [{"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
 for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
     _scn_cards.append(_scn_section(_title))
     for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
-        _last = _si == len(SCANNER_SETTINGS) - 1 and _ri == len(_rows) - 1
-        _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last))
+        _last_in_section = _ri == len(_rows) - 1
+        _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last_in_section))
 scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
 
 lang_card["card_mod"] = LANG_CM
