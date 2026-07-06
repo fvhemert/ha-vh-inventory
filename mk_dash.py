@@ -637,73 +637,97 @@ SCANNER_SETTINGS = [
 # Flatten a single-entity cell: strip the entities-card chrome so it reads as a
 # plain grid cell aligned with its neighbours.
 FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !important;"
-  " box-shadow: none !important; } #states { padding: 0 !important; }"
-  " .card-content { padding: 2px 8px !important; }"
+  " box-shadow: none !important; } #states { padding: 0 !important;"
+  " overflow: visible !important; } .card-content { padding: 2px 8px !important;"
+  " overflow: visible !important; } * { scrollbar-width: none !important; }"
+  " ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }"
   " .type-entity { background: transparent !important; border-radius: 0px !important;"
-  " box-shadow: none !important; min-height: 28px !important; }"}
+  " box-shadow: none !important; min-height: 28px !important; overflow: visible !important; }"}
 
-# Thin row separator matching the flex-tables (border-bottom on each data row).
-# ROW_SEP_CM draws it under a horizontal-stack row (spans all three columns);
-# LANG_CM adds the same line between the language/ID/kiosk entity rows.
-ROW_SEP_CM = {"style": ":host { display: block !important;"
-  " border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"}
+# Fixed width for the two scanner columns (wide enough for the number sliders,
+# e.g. Idle Timer). The Setting-name column takes the remaining space (1fr).
+_COLW = "340px"
+# Minimum total width of a scanner row (200px label floor + 2×340px + 2×8px gap).
+# Section headers get the same floor so the blue bars span the full scroll width.
+_SCN_MINW = "896px"
+
+# Row layout: a 3-column CSS grid (Setting name | Scanner-01 | Scanner-02) with
+# the two scanner columns at a fixed equal width, everything vertically centred.
+# When sep=True a thin bottom separator (matching the flex-tables) is added.
+def _row_cm(sep=True):
+    # Core `grid` card renders a real CSS grid inside #root; card-mod can override
+    # its inline grid-template-columns (unlike a horizontal-stack's flex :host).
+    style = ("#root { display: grid !important;"
+             " grid-template-columns: minmax(200px, 1fr) %s %s !important;"
+             " align-items: center !important; gap: 0 8px !important; }") % (_COLW, _COLW)
+    if sep:
+        style += (" :host { display: block !important; border-bottom: 1px solid"
+                  " rgba(255,255,255,0.28) !important; }")
+    return {"style": style}
 LANG_CM = {"style": FLAT_ENT_CM["style"]
   + " .type-entity { border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"
   + " .type-entity:last-child { border-bottom: none !important; }"}
 
-def _scn_label(text, header=False):
+def _scn_label(text, header=False, align="start"):
     weight = "bold" if header else "normal"
+    justify = "center" if align == "center" else "flex-start"
+    talign = "center" if align == "center" else "left"
     return {"type": "custom:button-card", "name": text, "show_icon": False, "show_name": True,
       "tap_action": {"action": "none"}, "styles": {
         "card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"},
           {"padding": "2px 8px"}, {"min-height": "28px"}, {"display": "flex"},
-          {"align-items": "center"}, {"justify-content": "flex-start"}],
-        "grid": [{"justify-items": "start"}],
+          {"align-items": "center"}, {"justify-content": justify}],
+        "grid": [{"justify-items": align}],
         "name": [{"color": "var(--vh-text-primary, rgba(230,230,230,1))"},
-          {"font-size": "13px"}, {"font-weight": weight}, {"text-align": "left"},
-          {"justify-self": "start"}, {"white-space": "normal"}]}}
+          {"font-size": "13px"}, {"font-weight": weight}, {"text-align": talign},
+          {"justify-self": align}, {"white-space": "normal"}]}}
 
 def _scn_cell(entity):
-    # Hide the (blanked) state-badge so it stops reserving ~40px of row height;
-    # covers both direct rows (select/number/text/sensor) and the nested
-    # generic row used by toggle/light rows.
-    row_cm = {"style": {
-      ".": "state-badge { display: none !important; }"
-           " :host { min-height: 26px !important; }",
-      "hui-generic-entity-row$": "state-badge { display: none !important; }"
-           " :host { min-height: 26px !important; }"}}
+    # Hide the (blanked) state-badge so it stops reserving ~40px of row height, and
+    # hide the empty name so the control left-aligns. Keep the state/value on the
+    # right (do NOT clip inner overflow) and suppress the stray scrollbar chrome.
+    css = ("state-badge { display: none !important; } .info { display: none !important; }"
+           " .flex { justify-content: flex-start !important; }"
+           " :host { min-height: 26px !important; justify-content: flex-start !important; }"
+           " ::-webkit-scrollbar { display: none !important; width: 0 !important;"
+           " height: 0 !important; }")
+    row_cm = {"style": {".": css, "hui-generic-entity-row$": css}}
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
       "entities": [{"entity": entity, "name": "", "icon": "mdi:blank", "card_mod": row_cm}]}
 
 def _scn_row(label, dom, suffix, sep=True):
-    row = {"type": "horizontal-stack", "cards": [
+    return {"type": "grid", "columns": 3, "square": False, "card_mod": _row_cm(sep), "cards": [
       _scn_label(label),
       _scn_cell("%s.barcode_01_%s" % (dom, suffix)),
       _scn_cell("%s.barcode_02_%s" % (dom, suffix))]}
-    if sep:
-        row["card_mod"] = ROW_SEP_CM
-    return row
 
-def _scn_section(title):
+def _scn_section(title, min_width=None):
+    card = [{"background": "var(--vh-table-header-color, #4dabf5)"}, {"border": "none"},
+      {"box-shadow": "none"}, {"padding": "0 10px"}, {"height": "32px"},
+      {"margin": "10px 0 2px 0"}, {"display": "flex"}, {"align-items": "center"},
+      {"justify-content": "flex-start"}]
+    if min_width:
+        card.append({"min-width": min_width})
     return {"type": "custom:button-card", "name": title, "show_icon": False,
       "tap_action": {"action": "none"}, "styles": {
-        "card": [{"background": "var(--vh-table-header-color, #4dabf5)"}, {"border": "none"},
-          {"box-shadow": "none"}, {"padding": "0 10px"}, {"height": "32px"},
-          {"margin": "10px 0 2px 0"}, {"display": "flex"}, {"align-items": "center"},
-          {"justify-content": "flex-start"}],
+        "card": card,
         "grid": [{"justify-items": "start"}],
         "name": [{"color": "#fff"}, {"font-size": "13px"}, {"font-weight": "bold"},
           {"justify-self": "start"}]}}
 
-_scn_cards = [{"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
+_scn_cards = [{"type": "grid", "columns": 3, "square": False, "card_mod": _row_cm(True), "cards": [
   _scn_label("Setting name", header=True), _scn_label("Scanner-01", header=True),
   _scn_label("Scanner-02", header=True)]}]
 for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
-    _scn_cards.append(_scn_section(_title))
+    _scn_cards.append(_scn_section(_title, min_width=_SCN_MINW))
     for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
         _last_in_section = _ri == len(_rows) - 1
         _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last_in_section))
-scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
+# Scanner matrix is wider than a phone; let the box scroll horizontally on overflow
+# (desktop: 1fr expands and it fits, so no scrollbar appears).
+SCN_WRAP_CM = {"style": WRAP_CM["style"]
+  + " :host { overflow-x: auto !important; display: block !important; }"}
+scanner_card = {"type": "vertical-stack", "card_mod": SCN_WRAP_CM, "cards": _scn_cards}
 
 lang_card["card_mod"] = LANG_CM
 app_settings_card = {"type": "vertical-stack", "card_mod": WRAP_CM,
