@@ -434,9 +434,7 @@ shop_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Shopping Li
   "columns": [id_col("shopping"), {"name": "Product", "data": "shopping", "modify": fld("product")},
     {"name": "Quantity", "data": "shopping", "align": "center", "modify": fld("quantity"), "_w": "80px"},
     {"name": "-", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:minus", -1), "_w": "40px"},
-    {"name": "+", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:plus", 1), "_w": "40px"},
-    {"name": "Edit", "data": "shopping", "align": "center", "modify": edit_icon("shopping_list", "#vh-edit-shopping"), "_w": "56px"},
-    {"name": "Del", "data": "shopping", "align": "center", "modify": del_icon("shopping_list"), "_w": "56px"}]}
+    {"name": "+", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:plus", 1), "_w": "40px"}]}
 shop_rows = ["input_select.vh_shopping_product", "input_number.vh_shopping_quantity"]
 shop_edit = popup("vh-edit-shopping", "Edit Shopping Item", "mdi:cart", shop_rows, "script.vh_update_shopping")
 
@@ -781,9 +779,37 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
     setup_tab]}
 assert tabbed["tabs"][QUICK_ADD_TAB_INDEX] is addlist_tab, \
   "QUICK_ADD_TAB_INDEX is out of sync with the tabs order"
+
+# Footer button (shown under the tabbed card on every tab): navigates back to the
+# Woonkamer touchscreen dashboard (url_path woonkamer-ts).
+home_btn = {"type": "custom:button-card", "name": "Woonkamer", "icon": "mdi:sofa",
+  "show_icon": True, "show_name": True,
+  "tap_action": {"action": "navigate", "navigation_path": "/woonkamer-ts"},
+  "styles": {"card": [{"height": "40px"}, {"background": "var(--vh-card-background)"},
+    {"border-radius": "var(--vh-card-radius, 0px)"},
+    {"border": "var(--vh-card-border, 1px solid rgba(255,255,255,0.25))"},
+    {"box-shadow": "none"}, {"padding": "0 16px"}, {"cursor": "pointer"},
+    {"width": "fit-content"}, {"min-width": "160px"}, {"margin": "8px 0 0 auto"},
+    {"display": "flex"}, {"align-items": "center"}, {"justify-content": "center"}],
+    "name": [{"color": "var(--vh-text-primary, rgba(230,230,230,1))"},
+      {"font-size": "13px"}, {"font-weight": "bold"}, {"padding-left": "8px"}],
+    "icon": [{"width": "20px"}, {"color": "var(--vh-text-primary, rgba(230,230,230,1))"}]},
+  "card_mod": {"style":
+    "ha-card:hover { background: var(--vh-table-header-color,#4dabf5) !important;"
+    " border-color: var(--vh-table-header-color,#4dabf5) !important; }"
+    " ha-card:hover ha-icon { color:#fff !important; }"}}
+
+# Right-align the footer button by placing transparent spacer cards to its left
+# inside a horizontal-stack (same technique as the Kantoor/Woonkamer dashboards).
+def _blank_card():
+    return {"type": "custom:button-card", "color_type": "blank-card",
+      "styles": {"card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"}]}}
+home_row = {"type": "horizontal-stack", "grid_options": {"columns": "full"},
+  "cards": [_blank_card(), _blank_card(), _blank_card(), _blank_card(), home_btn]}
+
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
   "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
-  "sections": [{"type": "grid", "column_span": 4, "cards": [tabbed, focus_boot]}]}
+  "sections": [{"type": "grid", "column_span": 4, "cards": [tabbed, home_row, focus_boot]}]}
 
 # Apply the glass card frame to every flex-table card in the view.
 def _apply_flex_cm(o):
