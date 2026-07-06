@@ -592,7 +592,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
     # Unresolved (Unknown): no product created; reflect the failed lookup on the
     # scanner display so the user gets feedback instead of a stale screen.
     if not info:
-        _update_scanner_display(device, bc, "Niet gevonden", "-")
+        _update_scanner_display(device, "Handmatig toevoegen", "Niet gevonden", "-")
 
 
 @service
