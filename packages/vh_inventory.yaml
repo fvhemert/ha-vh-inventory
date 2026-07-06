@@ -624,3 +624,45 @@ script:
           align: center
           cut: partial
           feed: 2
+
+# ---------------------------------------------------------------------------
+# Hardware barcode scanners (ESPHome) -> VH Inventory scan queue.
+# The ESPHome scanner fires esphome.scanner_product with data.device and
+# data.barcode. The device's select.<device>_scanner_mode chooses the action:
+#   Toevoegen -> Add, Gebruiken -> Use. Non-product modes fire
+#   esphome.scanner_generic and are ignored here. This applies the exact same
+#   logic as a manually typed barcode via pyscript.vh_inventory_scan_enqueue.
+# Currently scoped to barcode-01 and barcode-02; to add another scanner, extend
+# the device condition below (the mode entity is derived from the device name).
+# ---------------------------------------------------------------------------
+automation:
+  - id: vh_inventory_barcode_scanned
+    alias: VH Inventory - Barcode Scanned
+    description: >-
+      Feed ESPHome scanner product scans into the VH Inventory scan queue,
+      applying the same logic as a manually typed barcode. The scanner mode
+      select (Toevoegen=Add / Gebruiken=Use) chooses the action.
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: esphome.scanner_product
+    conditions:
+      - condition: template
+        value_template: "{{ (trigger.event.data.device | default('')) in ['barcode-01', 'barcode-02'] }}"
+      - condition: template
+        value_template: "{{ (trigger.event.data.barcode | default('') | string | trim) != '' }}"
+    variables:
+      scanner_mode_entity: >-
+        select.{{ (trigger.event.data.device | default('barcode-01')) | replace('-', '_') }}_scanner_mode
+      scan_action: >-
+        {{ 'Add' if is_state(scanner_mode_entity, 'Toevoegen')
+           else ('Use' if is_state(scanner_mode_entity, 'Gebruiken') else '') }}
+    actions:
+      - condition: template
+        value_template: "{{ scan_action in ['Add', 'Use'] }}"
+      - service: pyscript.vh_inventory_scan_enqueue
+        data:
+          barcode: "{{ trigger.event.data.barcode }}"
+          action: "{{ scan_action }}"
+          device: "{{ trigger.event.data.device }}"

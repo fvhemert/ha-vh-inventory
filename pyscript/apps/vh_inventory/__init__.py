@@ -490,9 +490,12 @@ def vh_inventory_add_store(store=None):
 
 
 @service
-def vh_inventory_scan_enqueue(barcode=None, action=None):
+def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
     """Add a scanned barcode to the scan_queue with the given action.
     action must be 'Add' or 'Use'; empty barcodes are ignored.
+    When device is given (e.g. 'barcode-01') the resolved product name,
+    description and resulting stock quantity are pushed back to that ESPHome
+    scanner's on-screen text entities.
     If the barcode already matches a product, state is 'Exist'. Otherwise the
     row is inserted as 'Lookup' and an online resolution is attempted, setting
     state to 'New' (resolved) or 'Unknown' (not resolvable)."""
@@ -513,12 +516,16 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
             pid = _product_id_for_barcode(bc)
             if pid:
                 _add_inventory_qty(pid, 1)
+                nm, ds = _product_name_desc(pid)
+                _update_scanner_display(device, nm, ds, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
         # Case 3: Use + Exist -> remove 1 from stock, never below 0.
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
                 _remove_inventory_qty(pid, 1)
+                nm, ds = _product_name_desc(pid)
+                _update_scanner_display(device, nm, ds, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
         return
     rid = _insert_id(
@@ -531,6 +538,8 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
         pid = _create_product_from_scan(bc, info)
         if pid:
             _add_inventory_qty(pid, 1)
+            nm, ds = _product_name_desc(pid)
+            _update_scanner_display(device, nm, ds, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
     # Case 4: Use + New -> create product (same settings), stock 0, and put it
     # on the shopping list at its auto-add quantity (as if below threshold).
@@ -551,7 +560,13 @@ def vh_inventory_scan_enqueue(barcode=None, action=None):
             _log_history("auto-add", "shopping_list", shop_id,
                          "Scan-use(new): added to shopping qty=%d (product_id=%d)"
                          % (add_qty, pid))
+            nm, ds = _product_name_desc(pid)
+            _update_scanner_display(device, nm, ds, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
+    # Unresolved (Unknown): no product created; reflect the failed lookup on the
+    # scanner display so the user gets feedback instead of a stale screen.
+    if not info:
+        _update_scanner_display(device, bc, "Niet gevonden", "-")
 
 
 @service
@@ -762,6 +777,37 @@ def _delete_scan_queue_row(rid, action, state):
     _exec("DELETE FROM scan_queue WHERE id=?", [rid])
     _log_history("delete", "scan_queue", rid,
                  "Completed %s (%s) - removed from scan queue" % (action, state))
+
+
+def _product_name_desc(pid):
+    """Return (name, description) for a product id, or (None, None)."""
+    row = _fetch_one_sql("SELECT name, description FROM products WHERE id=?", [pid])
+    if not row:
+        return (None, None)
+    return (row.get("name"), row.get("description"))
+
+
+def _total_stock(pid):
+    """Total stock quantity across all locations for a product id."""
+    row = _fetch_one_sql(
+        "SELECT COALESCE(SUM(quantity),0) AS q FROM stock WHERE product_id=?", [pid])
+    return int((row or {}).get("q") or 0)
+
+
+def _update_scanner_display(device, name, description, qty):
+    """Push the resolved product name, description and resulting stock quantity
+    to an ESPHome scanner's on-screen text entities (text.<device>_product_name
+    / _product_description / _stock). Values are clipped to the entities'
+    64-char limit. No-op when device is empty (e.g. manual dashboard entry)."""
+    if not device:
+        return
+    dev = str(device).replace("-", "_")
+    nm = ("" if name is None else str(name))[:64]
+    ds = ("" if description is None else str(description))[:64]
+    qt = ("-" if qty is None else str(qty))[:64]
+    text.set_value(entity_id="text.%s_product_name" % dev, value=nm)
+    text.set_value(entity_id="text.%s_product_description" % dev, value=ds)
+    text.set_value(entity_id="text.%s_stock" % dev, value=qt)
 
 
 # ---------- ONLINE BARCODE RESOLUTION ----------
