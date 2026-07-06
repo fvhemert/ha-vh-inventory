@@ -601,8 +601,89 @@ lang_card = {"type": "entities", "entities": [
   {"entity": "input_select.vh_language", "name": "Language", "icon": "mdi:translate"},
   {"entity": "input_boolean.vh_show_id_columns", "name": "Show ID columns", "icon": "mdi:identifier"},
   {"entity": "input_boolean.vh_kiosk_mode", "name": "Hide header (kiosk)", "icon": "mdi:fullscreen"}]}
+
+# --- Scanner settings matrix (Setup tab) ------------------------------------
+# A 3-column grid (Setting name | Scanner-01 | Scanner-02) built from the data
+# table below. Each row is a horizontal-stack of a text label + one flat
+# entities cell per scanner; sections get a coloured header. Entities are
+# barcode-01 / barcode-02 ESPHome controls.
+SCANNER_SETTINGS = [
+  ("Display", [
+    ("Color Add mode", "select", "color_add_mode"),
+    ("Color Use mode", "select", "color_use_mode"),
+    ("Display backlight", "light", "display_backlight"),
+    ("Display Idle brightness", "number", "display_idle_brightness"),
+    ("Display On brightness", "number", "display_on_brightness"),
+    ("Idle Timer", "number", "idle_timer")]),
+  ("Barcode", [
+    ("Last scan", "event", "last_scan"),
+    ("Barcode read", "sensor", "barcode_read"),
+    ("Product Name", "text", "product_name"),
+    ("Product manufacturer", "text", "product_description"),
+    ("Stock", "text", "stock")]),
+  ("Barcode scanner", [
+    ("Scanning enabled", "switch", "scanning_enabled"),
+    ("Buzzer volume", "select", "buzzer_volume"),
+    ("Collimation", "select", "collimation"),
+    ("Collimation flashing", "switch", "collimation_flashing"),
+    ("Scanning light", "select", "scanning_light"),
+    ("Same code delay", "select", "same_code_delay")]),
+  ("Device", [
+    ("Scanner Mode", "select", "scanner_mode"),
+    ("Print Inventory List", "switch", "print_inventory_list"),
+    ("Print Shopping list", "switch", "print_shopping_list")])]
+
+# Flatten a single-entity cell: strip the entities-card chrome so it reads as a
+# plain grid cell aligned with its neighbours.
+FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !important;"
+  " box-shadow: none !important; } #states { padding: 0 !important; }"
+  " .card-content { padding: 6px 8px !important; }"
+  " .type-entity { min-height: 40px !important; }"}
+
+def _scn_label(text, header=False):
+    weight = "bold" if header else "normal"
+    return {"type": "custom:button-card", "name": text, "show_icon": False, "show_name": True,
+      "tap_action": {"action": "none"}, "styles": {
+        "card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"},
+          {"padding": "0 8px"}, {"min-height": "40px"}, {"display": "flex"},
+          {"align-items": "center"}, {"justify-content": "flex-start"}],
+        "grid": [{"justify-items": "start"}],
+        "name": [{"color": "var(--vh-text-primary, rgba(230,230,230,1))"},
+          {"font-size": "13px"}, {"font-weight": weight}, {"text-align": "left"},
+          {"justify-self": "start"}, {"white-space": "normal"}]}}
+
+def _scn_cell(entity):
+    return {"type": "entities", "card_mod": FLAT_ENT_CM,
+      "entities": [{"entity": entity, "name": ""}]}
+
+def _scn_row(label, dom, suffix):
+    return {"type": "horizontal-stack", "cards": [
+      _scn_label(label),
+      _scn_cell("%s.barcode_01_%s" % (dom, suffix)),
+      _scn_cell("%s.barcode_02_%s" % (dom, suffix))]}
+
+def _scn_section(title):
+    return {"type": "custom:button-card", "name": title, "show_icon": False,
+      "tap_action": {"action": "none"}, "styles": {
+        "card": [{"background": "var(--vh-table-header-color, #4dabf5)"}, {"border": "none"},
+          {"box-shadow": "none"}, {"padding": "0 10px"}, {"height": "32px"},
+          {"margin": "10px 0 2px 0"}, {"display": "flex"}, {"align-items": "center"},
+          {"justify-content": "flex-start"}],
+        "grid": [{"justify-items": "start"}],
+        "name": [{"color": "#fff"}, {"font-size": "13px"}, {"font-weight": "bold"},
+          {"justify-self": "start"}]}}
+
+_scn_cards = [{"type": "horizontal-stack", "cards": [
+  _scn_label("Setting name", header=True), _scn_label("Scanner-01", header=True),
+  _scn_label("Scanner-02", header=True)]}]
+for _title, _rows in SCANNER_SETTINGS:
+    _scn_cards.append(_scn_section(_title))
+    for _lbl, _dom, _suf in _rows:
+        _scn_cards.append(_scn_row(_lbl, _dom, _suf))
+scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
-  "card": {"type": "vertical-stack", "cards": [lang_card]}}
+  "card": {"type": "vertical-stack", "cards": [lang_card, scanner_card]}}
 
 
 CART_RED = (
