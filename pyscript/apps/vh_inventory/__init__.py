@@ -1313,13 +1313,29 @@ def vh_inventory_update_shopping(id=None, product=None, quantity=1):
 
 @service
 def vh_inventory_adjust_shopping(id=None, delta=0):
-    """Increment/decrement a shopping-list row's quantity by delta (clamped at 0)."""
+    """Increment/decrement a shopping-list row's quantity by delta. When a
+    decrement brings the quantity to 0 (or below), the row is removed from the
+    shopping list instead of being left at 0."""
     if id in (None, ""):
         return
-    _exec("UPDATE shopping_list SET quantity=MAX(0, quantity + ?) WHERE id=?",
-          [int(delta), int(id)])
-    _log_history("adjust", "shopping_list", id,
-                 "Shopping id=%s quantity %+d" % (id, int(delta)))
+    rid, d = int(id), int(delta)
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT quantity FROM shopping_list WHERE id=?", [rid]).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return
+    newq = int(row[0]) + d
+    if newq <= 0:
+        _exec("DELETE FROM shopping_list WHERE id=?", [rid])
+        _log_history("remove", "shopping_list", rid,
+                     "Removed shopping id=%s (quantity reached 0)" % rid)
+    else:
+        _exec("UPDATE shopping_list SET quantity=? WHERE id=?", [newq, rid])
+        _log_history("adjust", "shopping_list", rid,
+                     "Shopping id=%s quantity %+d" % (rid, d))
 
 
 @service
