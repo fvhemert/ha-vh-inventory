@@ -7,6 +7,9 @@ import requests
 DB_PATH = "/config/vh_inventory.db"
 NONE = "(none)"
 
+HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
+HISTORY_RETENTION_MONTHS = 3    # history rows older than this are auto-purged
+
 TABLES = {
     "sensor.vh_inventory_locations": (
         "locations", ["id", "location"], "VH Inventory Locations",
@@ -139,6 +142,7 @@ def _ensure_schema():
                         log.warning(
                             "vh_inventory schema: cannot add %s.%s (%s)"
                             % (table, n, e))
+        _purge_history(conn)
         conn.commit()
     finally:
         conn.close()
@@ -346,7 +350,7 @@ def _publish():
         "friendly_name": "VH Inventory Scan Queue",
         "icon": "mdi:barcode-scan", "scan_queue": scanq})
     hist = _load("history", ["id", "timestamp", "action", "entity",
-        "entity_id", "detail"], "id DESC LIMIT 200")
+        "entity_id", "detail"], "id DESC LIMIT %d" % HISTORY_DISPLAY_LIMIT)
     state.set("sensor.vh_inventory_history", len(hist), {
         "friendly_name": "VH Inventory History",
         "icon": "mdi:history", "history": hist})
@@ -378,6 +382,27 @@ def _insert_id(sql, params):
         conn.close()
 
 
+def _months_ago(months):
+    """Return the datetime `months` calendar months before now (day-clamped so
+    e.g. 3 months before 31 May yields the last valid day of February)."""
+    now = datetime.datetime.now()
+    idx = now.year * 12 + (now.month - 1) - months
+    year, month = idx // 12, idx % 12 + 1
+    if month == 12:
+        first_next = datetime.date(year + 1, 1, 1)
+    else:
+        first_next = datetime.date(year, month + 1, 1)
+    last_day = (first_next - datetime.timedelta(days=1)).day
+    return now.replace(year=year, month=month, day=min(now.day, last_day))
+
+
+def _purge_history(conn):
+    """Delete history rows older than the retention window (no commit). Safe on
+    string timestamps because '%Y-%m-%d %H:%M:%S' sorts chronologically."""
+    cutoff = _months_ago(HISTORY_RETENTION_MONTHS).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("DELETE FROM history WHERE timestamp < ?", [cutoff])
+
+
 def _hist_row(conn, action, entity, entity_id, detail):
     """Insert a history row on an existing connection (no commit/publish)."""
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -385,6 +410,7 @@ def _hist_row(conn, action, entity, entity_id, detail):
     conn.execute(
         "INSERT INTO history(timestamp,action,entity,entity_id,detail) "
         "VALUES(?,?,?,?,?)", [ts, action, entity, eid, detail])
+    _purge_history(conn)
 
 
 def _log_history(action, entity, entity_id=None, detail=None):
