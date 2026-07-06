@@ -638,9 +638,9 @@ SCANNER_SETTINGS = [
 # plain grid cell aligned with its neighbours.
 FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !important;"
   " box-shadow: none !important; } #states { padding: 0 !important; }"
-  " .card-content { padding: 6px 8px !important; }"
+  " .card-content { padding: 2px 8px !important; }"
   " .type-entity { background: transparent !important; border-radius: 0px !important;"
-  " box-shadow: none !important; min-height: 40px !important; }"}
+  " box-shadow: none !important; min-height: 28px !important; }"}
 
 # Thin row separator matching the flex-tables (border-bottom on each data row).
 # ROW_SEP_CM draws it under a horizontal-stack row (spans all three columns);
@@ -656,7 +656,7 @@ def _scn_label(text, header=False):
     return {"type": "custom:button-card", "name": text, "show_icon": False, "show_name": True,
       "tap_action": {"action": "none"}, "styles": {
         "card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"},
-          {"padding": "0 8px"}, {"min-height": "40px"}, {"display": "flex"},
+          {"padding": "2px 8px"}, {"min-height": "28px"}, {"display": "flex"},
           {"align-items": "center"}, {"justify-content": "flex-start"}],
         "grid": [{"justify-items": "start"}],
         "name": [{"color": "var(--vh-text-primary, rgba(230,230,230,1))"},
