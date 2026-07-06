@@ -664,8 +664,16 @@ def _scn_label(text, header=False):
           {"justify-self": "start"}, {"white-space": "normal"}]}}
 
 def _scn_cell(entity):
+    # Hide the (blanked) state-badge so it stops reserving ~40px of row height;
+    # covers both direct rows (select/number/text/sensor) and the nested
+    # generic row used by toggle/light rows.
+    row_cm = {"style": {
+      ".": "state-badge { display: none !important; }"
+           " :host { min-height: 26px !important; }",
+      "hui-generic-entity-row$": "state-badge { display: none !important; }"
+           " :host { min-height: 26px !important; }"}}
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
-      "entities": [{"entity": entity, "name": "", "icon": "mdi:blank"}]}
+      "entities": [{"entity": entity, "name": "", "icon": "mdi:blank", "card_mod": row_cm}]}
 
 def _scn_row(label, dom, suffix, sep=True):
     row = {"type": "horizontal-stack", "cards": [
