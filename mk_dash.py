@@ -642,6 +642,14 @@ FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !im
   " .type-entity { background: transparent !important; border-radius: 0px !important;"
   " box-shadow: none !important; min-height: 40px !important; }"}
 
+# Thin row separator matching the flex-tables (border-bottom on each data row).
+# ROW_SEP_CM draws it under a horizontal-stack row (spans all three columns);
+# LANG_CM adds the same line between the language/ID/kiosk entity rows.
+ROW_SEP_CM = {"style": ":host { display: block !important;"
+  " border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"}
+LANG_CM = {"style": FLAT_ENT_CM["style"]
+  + " .type-entity { border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"}
+
 def _scn_label(text, header=False):
     weight = "bold" if header else "normal"
     return {"type": "custom:button-card", "name": text, "show_icon": False, "show_name": True,
@@ -659,7 +667,7 @@ def _scn_cell(entity):
       "entities": [{"entity": entity, "name": "", "icon": "mdi:blank"}]}
 
 def _scn_row(label, dom, suffix):
-    return {"type": "horizontal-stack", "cards": [
+    return {"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
       _scn_label(label),
       _scn_cell("%s.barcode_01_%s" % (dom, suffix)),
       _scn_cell("%s.barcode_02_%s" % (dom, suffix))]}
@@ -675,7 +683,7 @@ def _scn_section(title):
         "name": [{"color": "#fff"}, {"font-size": "13px"}, {"font-weight": "bold"},
           {"justify-self": "start"}]}}
 
-_scn_cards = [{"type": "horizontal-stack", "cards": [
+_scn_cards = [{"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
   _scn_label("Setting name", header=True), _scn_label("Scanner-01", header=True),
   _scn_label("Scanner-02", header=True)]}]
 for _title, _rows in SCANNER_SETTINGS:
@@ -684,7 +692,7 @@ for _title, _rows in SCANNER_SETTINGS:
         _scn_cards.append(_scn_row(_lbl, _dom, _suf))
 scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
 
-lang_card["card_mod"] = FLAT_ENT_CM
+lang_card["card_mod"] = LANG_CM
 
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [lang_card, scanner_card]}}
