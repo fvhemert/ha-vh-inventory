@@ -629,6 +629,7 @@ SCANNER_SETTINGS = [
     ("Scanning light", "select", "scanning_light"),
     ("Same code delay", "select", "same_code_delay")]),
   ("Device", [
+    ("Startup mode", "select", "startup_mode"),
     ("Scanner Mode", "select", "scanner_mode"),
     ("Print Inventory List", "switch", "print_inventory_list"),
     ("Print Shopping list", "switch", "print_shopping_list")])]
@@ -654,7 +655,7 @@ def _scn_label(text, header=False):
 
 def _scn_cell(entity):
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
-      "entities": [{"entity": entity, "name": ""}]}
+      "entities": [{"entity": entity, "name": "", "icon": "mdi:blank"}]}
 
 def _scn_row(label, dom, suffix):
     return {"type": "horizontal-stack", "cards": [
