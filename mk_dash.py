@@ -648,7 +648,8 @@ FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !im
 ROW_SEP_CM = {"style": ":host { display: block !important;"
   " border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"}
 LANG_CM = {"style": FLAT_ENT_CM["style"]
-  + " .type-entity { border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"}
+  + " .type-entity { border-bottom: 1px solid rgba(255,255,255,0.28) !important; }"
+  + " .type-entity:last-child { border-bottom: none !important; }"}
 
 def _scn_label(text, header=False):
     weight = "bold" if header else "normal"
@@ -666,11 +667,14 @@ def _scn_cell(entity):
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
       "entities": [{"entity": entity, "name": "", "icon": "mdi:blank"}]}
 
-def _scn_row(label, dom, suffix):
-    return {"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
+def _scn_row(label, dom, suffix, sep=True):
+    row = {"type": "horizontal-stack", "cards": [
       _scn_label(label),
       _scn_cell("%s.barcode_01_%s" % (dom, suffix)),
       _scn_cell("%s.barcode_02_%s" % (dom, suffix))]}
+    if sep:
+        row["card_mod"] = ROW_SEP_CM
+    return row
 
 def _scn_section(title):
     return {"type": "custom:button-card", "name": title, "show_icon": False,
@@ -686,10 +690,11 @@ def _scn_section(title):
 _scn_cards = [{"type": "horizontal-stack", "card_mod": ROW_SEP_CM, "cards": [
   _scn_label("Setting name", header=True), _scn_label("Scanner-01", header=True),
   _scn_label("Scanner-02", header=True)]}]
-for _title, _rows in SCANNER_SETTINGS:
+for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
     _scn_cards.append(_scn_section(_title))
-    for _lbl, _dom, _suf in _rows:
-        _scn_cards.append(_scn_row(_lbl, _dom, _suf))
+    for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
+        _last = _si == len(SCANNER_SETTINGS) - 1 and _ri == len(_rows) - 1
+        _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last))
 scanner_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": _scn_cards}
 
 lang_card["card_mod"] = LANG_CM
