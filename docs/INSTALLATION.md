@@ -60,15 +60,23 @@ The backend runs on **pyscript**.
    **Pyscript Python scripting**.
 2. **Restart Home Assistant** (Settings → System → Restart).
 3. Add pyscript to your configuration. In `configuration.yaml` (or a dedicated file),
-   enable application discovery and external imports — the app uses the `requests`
+   register the app and allow external imports — the app uses the `requests`
    library for online barcode lookups:
 
    ```yaml
    # configuration.yaml
    pyscript:
      allow_all_imports: true
-     apps: {}            # apps are auto-discovered from /config/pyscript/apps/
+     apps:
+       vh_inventory:      # REQUIRED - see note below
    ```
+
+   > **⚠️ The `apps: vh_inventory:` entry is required.** pyscript loads an app from
+   > `/config/pyscript/apps/<name>/` **only if that app has a matching entry under
+   > `apps:`**. An empty `apps:` (or omitting the entry) means the backend never loads —
+   > no `sensor.vh_inventory_*` entities and no database are created, with no error in the
+   > log. The entry can be empty (as above) for a keyless install; add the optional
+   > `upcdb_*` keys under it only to enable upcdatabase.org (see §9).
 
    > **Why `allow_all_imports`?** The backend imports `requests` to query the
    > Open Food Facts / UPC Item DB APIs. Without this flag pyscript blocks the import.

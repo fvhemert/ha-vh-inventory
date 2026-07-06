@@ -34,6 +34,8 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
 - 📖 **[Product Manual](docs/PRODUCT-MANUAL.md)** — how the system works, with
   screenshots: tabs, scanning workflow, quick add, inventory, shopping list, per-store and
   per-category thermal printing, auto-add, and language switching.
+- 🗑️ **[Uninstall Guide](docs/UNINSTALL.md)** — cleanly remove the solution: dashboard,
+  files, `configuration.yaml` blocks, entities, recorder history, and shared dependencies.
 
 ## Repository layout
 

@@ -11,18 +11,19 @@
 # system-level recorder tweak described in block 3.
 # -----------------------------------------------------------------------------
 
-# 1) Backend: enable pyscript and allow the imports the app uses for online
-#    barcode lookups (requests). Apps are auto-discovered from
-#    /config/pyscript/apps/, so the VH-Inventory backend loads automatically.
-#    The vh_inventory app block is OPTIONAL: add it only to enable the
-#    upcdatabase.org provider with a free API key (see docs/INSTALLATION.md 9).
-#    Without it the app still works using the keyless providers.
+# 1) Backend: enable pyscript and register the VH-Inventory app. pyscript loads an
+#    app from /config/pyscript/apps/<name>/ ONLY if it has a matching entry under
+#    apps: below - an empty apps: will NOT load the backend (no sensors, no DB).
+#    allow_all_imports is required for the app's online barcode lookups (requests).
+#    The upcdb_* keys are OPTIONAL: uncomment them only to enable the upcdatabase.org
+#    provider with a free API key (see docs/INSTALLATION.md 9). Without them the app
+#    works using the keyless providers.
 pyscript:
   allow_all_imports: true
   apps:
     vh_inventory:
-      upcdb_url_base: https://api.upcdatabase.org/product/
-      upcdb_api_key: !secret upcdb_api   # store the key in /config/secrets.yaml
+      # upcdb_url_base: https://api.upcdatabase.org/product/
+      # upcdb_api_key: !secret upcdb_api   # store the key in /config/secrets.yaml
 
 # 2) Load the VH-Inventory package. This is the dedicated solution file that
 #    contains ALL of the solution's helpers, scripts and template sensors.
