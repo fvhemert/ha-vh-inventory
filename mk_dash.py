@@ -832,7 +832,6 @@ ws.send(json.dumps({"id": 1, "type": "lovelace/config/save", "url_path": "vh-inv
   "config": {"title": "VH-Inventory", "resources": [
     {"url": "/hacsfiles/button-card/button-card.js", "type": "module"},
     {"url": "/hacsfiles/lovelace-card-mod/card-mod.js", "type": "module"}],
-    "kiosk_mode": {"entity_settings": [
-      {"entity": {"input_boolean.vh_kiosk_mode": "on"}, "hide_header": True}]},
+    "kiosk_mode": {"hide_header": "{{ is_state('input_boolean.vh_kiosk_mode', 'on') }}"},
     "views": [view]}}))
 print("save:", r().get("success")); ws.close()
