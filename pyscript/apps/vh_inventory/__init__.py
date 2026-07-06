@@ -542,16 +542,16 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             pid = _product_id_for_barcode(bc)
             if pid:
                 _add_inventory_qty(pid, 1)
-                nm, ds = _product_name_desc(pid)
-                _update_scanner_display(device, nm, ds, _total_stock(pid))
+                nm, mf = _product_name_mfr(pid)
+                _update_scanner_display(device, nm, mf, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
         # Case 3: Use + Exist -> remove 1 from stock, never below 0.
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
                 _remove_inventory_qty(pid, 1)
-                nm, ds = _product_name_desc(pid)
-                _update_scanner_display(device, nm, ds, _total_stock(pid))
+                nm, mf = _product_name_mfr(pid)
+                _update_scanner_display(device, nm, mf, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
         return
     rid = _insert_id(
@@ -564,8 +564,8 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
         pid = _create_product_from_scan(bc, info)
         if pid:
             _add_inventory_qty(pid, 1)
-            nm, ds = _product_name_desc(pid)
-            _update_scanner_display(device, nm, ds, _total_stock(pid))
+            nm, mf = _product_name_mfr(pid)
+            _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
     # Case 4: Use + New -> create product (same settings), stock 0, and put it
     # on the shopping list at its auto-add quantity (as if below threshold).
@@ -586,8 +586,8 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             _log_history("auto-add", "shopping_list", shop_id,
                          "Scan-use(new): added to shopping qty=%d (product_id=%d)"
                          % (add_qty, pid))
-            nm, ds = _product_name_desc(pid)
-            _update_scanner_display(device, nm, ds, _total_stock(pid))
+            nm, mf = _product_name_mfr(pid)
+            _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
     # Unresolved (Unknown): no product created; reflect the failed lookup on the
     # scanner display so the user gets feedback instead of a stale screen.
@@ -805,12 +805,14 @@ def _delete_scan_queue_row(rid, action, state):
                  "Completed %s (%s) - removed from scan queue" % (action, state))
 
 
-def _product_name_desc(pid):
-    """Return (name, description) for a product id, or (None, None)."""
-    row = _fetch_one_sql("SELECT name, description FROM products WHERE id=?", [pid])
+def _product_name_mfr(pid):
+    """Return (name, manufacturer) for a product id, or (None, None).
+    Used to feed the ESPHome scanner display, which shows the manufacturer
+    in its 'description' text field."""
+    row = _fetch_one_sql("SELECT name, manufacturer FROM products WHERE id=?", [pid])
     if not row:
         return (None, None)
-    return (row.get("name"), row.get("description"))
+    return (row.get("name"), row.get("manufacturer"))
 
 
 def _total_stock(pid):
