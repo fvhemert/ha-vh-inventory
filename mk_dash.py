@@ -357,14 +357,14 @@ inv_edit = popup("vh-edit-inventory", "Edit Inventory", "mdi:clipboard-list", in
 # mirroring the production barcode dashboard. The clickable magnify icon clears
 # the search; strip_accents matching lives in vh_inventory.yaml. The Inventory tab
 # also carries a Print button + a category selector (input_select.vh_print_category,
-# kept in sync by pyscript) that chooses which category to print ("All" = every
-# category) via script.vh_print_stock.
+# kept in sync by pyscript). The Print button and printer icon both run
+# script.vh_print_inventory (full stock overview, qty>0, grouped by category).
 print_inv_btn = btn("Print", {"action": "perform-action",
-  "perform_action": "script.vh_print_stock", "data": {}})
-# Printer icon button that prints the inventory for the selected category. Sits
-# directly in front of the category selector, styled like the search magnifier.
+  "perform_action": "script.vh_print_inventory", "data": {}})
+# Printer icon button that prints the inventory. Sits directly in front of the
+# category selector, styled like the search magnifier.
 inv_print_icon = icon_action_btn("mdi:printer-pos-outline",
-  {"action": "perform-action", "perform_action": "script.vh_print_stock", "data": {}})
+  {"action": "perform-action", "perform_action": "script.vh_print_inventory", "data": {}})
 # Category selector: width capped to fit the name + arrow; the built-in shape icon
 # is hidden (a printer button sits in front instead); the picker is collapsed to
 # 36px to match the buttons by overriding the md-list-item height var on the
