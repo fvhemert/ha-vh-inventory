@@ -620,6 +620,93 @@ script:
           align: center
           cut: partial
           feed: 2
+  vh_print_inventory:
+    alias: VH Print Inventory List
+    description: >-
+      Print the full VH-Inventory stock overview to the Epson TM-T20II (ESC/POS)
+      thermal printer. Lists every product with total quantity > 0 (summed across
+      locations), grouped per category; products with no category go under a
+      final "Algemeen" section. Product name left, total quantity right-aligned.
+      Reads sensor.vh_inventory_stock and sensor.vh_inventory_categories.
+    sequence:
+      - service: escpos_printer.print_text
+        data:
+          text: "\nVoorraad lijst"
+          align: center
+          width: double
+          height: double
+          bold: true
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: |-
+            {%- set stock = state_attr('sensor.vh_inventory_stock','stock') or [] -%}
+            {%- set cats = state_attr('sensor.vh_inventory_categories','categories') or [] -%}
+            {%- set pids = stock | map(attribute='product_id') | unique | list -%}
+            {%- set agg = namespace(items=[]) -%}
+            {%- for pid in pids -%}
+              {%- set rows = stock | selectattr('product_id','eq',pid) | list -%}
+              {%- set qty = rows | map(attribute='quantity') | map('int',0) | sum -%}
+              {%- if qty > 0 -%}
+                {%- set nm = rows | map(attribute='product') | first -%}
+                {%- set ct = rows | map(attribute='category') | first | default('') -%}
+                {%- set agg.items = agg.items + [ {'name': nm, 'qty': qty, 'cat': (ct if ct else 'Algemeen')} ] -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set order = namespace(list=[]) -%}
+            {%- for c in cats -%}{%- set order.list = order.list + [c.category] -%}{%- endfor -%}
+            {%- set known = order.list -%}
+            {%- set order.list = order.list + ['Algemeen'] -%}
+            {%- set out = namespace(lines=[]) -%}
+            {%- for gname in order.list -%}
+              {%- if gname == 'Algemeen' -%}
+                {%- set sect = agg.items | rejectattr('cat','in',known) | list -%}
+              {%- else -%}
+                {%- set sect = agg.items | selectattr('cat','eq',gname) | list -%}
+              {%- endif -%}
+              {%- if sect | length > 0 -%}
+                {%- if out.lines | length > 0 -%}{%- set out.lines = out.lines + [''] -%}{%- endif -%}
+                {%- set out.lines = out.lines + [ gname ] + [ '-' * 44 ] -%}
+                {%- for it in sect -%}
+                  {%- set qstr = it.qty | string -%}
+                  {%- set wname = 44 - (qstr | length) - 1 -%}
+                  {%- set words = it.name.split(' ') -%}
+                  {%- set ws = namespace(lines=[], current=[], current_length=0) -%}
+                  {%- for word in words -%}
+                    {%- if ws.current_length == 0 -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}
+                    {%- elif ws.current_length + 1 + (word | length) <= wname -%}{%- set ws.current = ws.current + [word] -%}{%- set ws.current_length = ws.current_length + 1 + (word | length) -%}
+                    {%- else -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- set ws.current = [word] -%}{%- set ws.current_length = word | length -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- if ws.current | length > 0 -%}{%- set ws.lines = ws.lines + [ws.current | join(' ')] -%}{%- endif -%}
+                  {%- for line in ws.lines -%}
+                    {%- if loop.first -%}
+                      {%- set pad = 44 - (line | length) - (qstr | length) -%}
+                      {%- if pad < 1 -%}{%- set pad = 1 -%}{%- endif -%}
+                      {%- set out.lines = out.lines + [ line ~ ' ' * pad ~ qstr ] -%}
+                    {%- else -%}
+                      {%- set out.lines = out.lines + [ line ] -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- endfor -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ out.lines | join('\n') }}
+          align: left
+          width: normal
+          height: normal
+          bold: false
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: "Afgedrukt op {{ now().strftime('%d-%m-%Y %H:%M') }}"
+          align: center
+          width: normal
+          height: normal
+          bold: false
+          cut: partial
+          feed: 3
 
 # ---------------------------------------------------------------------------
 # Hardware barcode scanners (ESPHome) -> VH Inventory scan queue.
@@ -684,3 +771,25 @@ automation:
           entity_id:
             - switch.barcode_01_print_shopping_list
             - switch.barcode_02_print_shopping_list
+
+  - id: vh_inventory_print_inventory_switch
+    alias: VH Inventory - Print Inventory List (scanner switch)
+    description: >-
+      When either scanner's "Print Inventory list" switch
+      (switch.barcode_01_print_inventory_list / switch.barcode_02_print_inventory_list)
+      is turned on, print the stock overview (script.vh_print_inventory), then
+      turn both switches back off.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - switch.barcode_01_print_inventory_list
+          - switch.barcode_02_print_inventory_list
+        to: "on"
+    actions:
+      - service: script.vh_print_inventory
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.barcode_01_print_inventory_list
+            - switch.barcode_02_print_inventory_list
