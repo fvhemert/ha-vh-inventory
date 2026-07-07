@@ -486,13 +486,13 @@ script:
     sequence:
       - service: escpos_printer.print_text
         data:
-          text: Boodschappenlijst
+          text: "\nBoodschappenlijst"
           align: center
           width: double
           height: double
           bold: true
           cut: none
-          feed: 1
+          feed: 2
       - service: escpos_printer.print_text
         data:
           text: |-
@@ -530,7 +530,7 @@ script:
               {%- endif -%}
             {%- endfor -%}
             {%- set out.lines = out.lines + [''] -%}
-            {%- for i in range(10) -%}{%- set out.lines = out.lines + ['■ ' ~ '_' * 42] -%}{%- endfor -%}
+            {%- for i in range(10) -%}{%- set out.lines = out.lines + ['■ ' ~ '_' * 42] + [''] -%}{%- endfor -%}
             {{ out.lines | join('\n') }}
           align: left
           width: normal
