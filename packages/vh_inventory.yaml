@@ -494,7 +494,7 @@ script:
             {%- set order = namespace(list=[]) -%}
             {%- for s in stores if s.store != 'All' -%}{%- set order.list = order.list + [s.store] -%}{%- endfor -%}
             {%- set known = order.list -%}
-            {%- set order.list = order.list + ['Algemeen'] -%}
+            {%- set order.list = ['Algemeen'] + order.list -%}
             {%- for gname in order.list -%}
               {%- set sect = namespace(items=[]) -%}
               {%- for it in shopping -%}
