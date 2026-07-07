@@ -493,12 +493,13 @@ script:
             {%- set out = namespace(lines=['Boodschappenlijst', '=' * 44]) -%}
             {%- set order = namespace(list=[]) -%}
             {%- for s in stores if s.store != 'All' -%}{%- set order.list = order.list + [s.store] -%}{%- endfor -%}
+            {%- set known = order.list -%}
             {%- set order.list = order.list + ['Algemeen'] -%}
             {%- for gname in order.list -%}
               {%- set sect = namespace(items=[]) -%}
               {%- for it in shopping -%}
                 {%- set st = (products|selectattr('id','eq',it.product_id)|map(attribute='store')|first|default('')) -%}
-                {%- set match = (st in ['','All']) if gname == 'Algemeen' else (st == gname) -%}
+                {%- set match = (st not in known) if gname == 'Algemeen' else (st == gname) -%}
                 {%- if match -%}{%- set sect.items = sect.items + [ it.product ~ ((' (' ~ it.quantity ~ 'x)') if (it.quantity|int(1))>1 else '') ] -%}{%- endif -%}
               {%- endfor -%}
               {%- if sect.items | length > 0 -%}
