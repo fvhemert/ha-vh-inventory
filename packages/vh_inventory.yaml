@@ -556,18 +556,8 @@ script:
       final "Algemeen" section. Product name left, total quantity right-aligned.
       Reads sensor.vh_inventory_stock and sensor.vh_inventory_categories.
     sequence:
-      - service: escpos_printer.print_text
-        data:
-          text: "\nVoorraad lijst"
-          align: center
-          width: double
-          height: double
-          bold: true
-          cut: none
-          feed: 2
-      - service: escpos_printer.print_text
-        data:
-          text: |-
+      - variables:
+          body_text: |-
             {%- set stock = state_attr('sensor.vh_inventory_stock','stock') or [] -%}
             {%- set cats = state_attr('sensor.vh_inventory_categories','categories') or [] -%}
             {%- set pids = stock | map(attribute='product_id') | unique | list -%}
@@ -619,6 +609,18 @@ script:
               {%- endif -%}
             {%- endfor -%}
             {{ out.lines | join('\n') }}
+      - service: escpos_printer.print_text
+        data:
+          text: "\nVoorraad lijst"
+          align: center
+          width: double
+          height: double
+          bold: true
+          cut: none
+          feed: 2
+      - service: escpos_printer.print_text
+        data:
+          text: "{{ body_text }}"
           align: left
           width: normal
           height: normal
