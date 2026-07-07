@@ -669,3 +669,25 @@ automation:
           barcode: "{{ trigger.event.data.barcode }}"
           action: "{{ scan_action }}"
           device: "{{ trigger.event.data.device }}"
+
+  - id: vh_inventory_print_shopping_switch
+    alias: VH Inventory - Print Shopping List (scanner switch)
+    description: >-
+      When either scanner's "Print Shopping list" switch
+      (switch.barcode_01_print_shopping_list / switch.barcode_02_print_shopping_list)
+      is turned on, run the same action as the shopping-list Afdrukken button
+      (script.vh_print_shopping), then turn both switches back off.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - switch.barcode_01_print_shopping_list
+          - switch.barcode_02_print_shopping_list
+        to: "on"
+    actions:
+      - service: script.vh_print_shopping
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.barcode_01_print_shopping_list
+            - switch.barcode_02_print_shopping_list
