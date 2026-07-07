@@ -493,8 +493,6 @@ script:
           bold: true
           cut: none
           feed: 1
-      - delay:
-          milliseconds: 400
       - service: escpos_printer.print_text
         data:
           text: |-
@@ -540,8 +538,6 @@ script:
           bold: false
           cut: none
           feed: 2
-      - delay:
-          milliseconds: 400
       - service: escpos_printer.print_text
         data:
           text: "Afgedrukt op {{ now().strftime('%d-%m-%Y %H:%M') }}"
