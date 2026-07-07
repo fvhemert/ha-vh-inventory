@@ -486,25 +486,11 @@ script:
     sequence:
       - service: escpos_printer.print_text
         data:
-          text: ' '
-          cut: none
-          feed: 1
-      - service: escpos_printer.print_text
-        data:
-          text: Boodschappenlijst
-          bold: true
-          width: double
-          height: double
-          align: center
-          cut: none
-          feed: 2
-      - service: escpos_printer.print_text
-        data:
           text: |-
             {%- set shopping = state_attr('sensor.vh_inventory_shopping','shopping') or [] -%}
             {%- set products = state_attr('sensor.vh_inventory_products','products') or [] -%}
             {%- set stores = state_attr('sensor.vh_inventory_stores','stores') or [] -%}
-            {%- set out = namespace(lines=[]) -%}
+            {%- set out = namespace(lines=['Boodschappenlijst', '=' * 44]) -%}
             {%- set order = namespace(list=[]) -%}
             {%- for s in stores if s.store != 'All' -%}{%- set order.list = order.list + [s.store] -%}{%- endfor -%}
             {%- set order.list = order.list + ['Algemeen'] -%}
@@ -516,8 +502,7 @@ script:
                 {%- if match -%}{%- set sect.items = sect.items + [ it.product ~ ((' (' ~ it.quantity ~ 'x)') if (it.quantity|int(1))>1 else '') ] -%}{%- endif -%}
               {%- endfor -%}
               {%- if sect.items | length > 0 -%}
-                {%- if out.lines | length > 0 -%}{%- set out.lines = out.lines + [''] -%}{%- endif -%}
-                {%- set out.lines = out.lines + [ gname ] + [ '-' * 44 ] -%}
+                {%- set out.lines = out.lines + [''] + [ gname ] + [ '-' * 44 ] -%}
                 {%- for label in sect.items -%}
                   {%- set words = label.split(' ') -%}
                   {%- set ws = namespace(lines=[], current=[], current_length=0) -%}
@@ -533,27 +518,15 @@ script:
                 {%- endfor -%}
               {%- endif -%}
             {%- endfor -%}
+            {%- set out.lines = out.lines + [''] * 10 -%}
+            {%- set out.lines = out.lines + ['Afgedrukt op ' ~ now().strftime('%d-%m-%Y %H:%M')] -%}
             {{ out.lines | join('\n') }}
-          cut: none
-          feed: 2
+          align: left
           width: normal
           height: normal
-      - service: escpos_printer.print_text
-        data:
-          text: |-
-            ■ ___________________________________________
-
-            ■ ___________________________________________
-
-            ■ ___________________________________________
-          cut: none
-          feed: 2
-      - service: escpos_printer.print_text
-        data:
-          text: "Afgedrukt op {{ now().strftime('%d-%m-%Y %H:%M') }}"
-          align: center
+          bold: false
           cut: partial
-          feed: 2
+          feed: 3
   vh_print_stock:
     alias: VH Print Stock
     description: >-
