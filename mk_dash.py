@@ -1101,32 +1101,28 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
 assert tabbed["tabs"][QUICK_ADD_TAB_INDEX] is addlist_tab, \
   "QUICK_ADD_TAB_INDEX is out of sync with the tabs order"
 
-# Footer button (shown under the tabbed card on every tab): navigates back to the
-# Woonkamer touchscreen dashboard (url_path woonkamer-ts).
-home_btn = {"type": "custom:button-card", "name": "Woonkamer", "icon": "mdi:sofa",
-  "show_icon": True, "show_name": True,
-  "tap_action": {"action": "navigate", "navigation_path": "/woonkamer-ts"},
-  "styles": {"card": [{"height": "40px"}, {"background": "var(--vh-card-background)"},
-    {"border-radius": "var(--vh-card-radius, 0px)"},
-    {"border": "var(--vh-card-border, 1px solid rgba(255,255,255,0.25))"},
-    {"box-shadow": "none"}, {"padding": "0 16px"}, {"cursor": "pointer"},
-    {"width": "fit-content"}, {"min-width": "160px"}, {"margin": "8px 0 0 auto"},
-    {"display": "flex"}, {"align-items": "center"}, {"justify-content": "center"}],
-    "name": [{"color": "var(--vh-text-primary, rgba(230,230,230,1))"},
-      {"font-size": "13px"}, {"font-weight": "bold"}, {"padding-left": "8px"}],
-    "icon": [{"width": "20px"}, {"color": "var(--vh-text-primary, rgba(230,230,230,1))"}]},
-  "card_mod": {"style":
-    "ha-card:hover { background: var(--vh-table-header-color,#4dabf5) !important;"
-    " border-color: var(--vh-table-header-color,#4dabf5) !important; }"
-    " ha-card:hover ha-icon { color:#fff !important; }"}}
+# Footer nav buttons (shown under the tabbed card on every tab): navigate back to
+# the Woonkamer and Kantoor touchscreen dashboards. Styling matches the identical
+# pair on the kantoor-ts dashboard (dark VH glass button, 48px tall, 170px wide).
+def _nav_btn(name, icon, path):
+    return {"type": "custom:button-card", "name": name, "icon": icon,
+      "show_label": False, "show_state": False,
+      "tap_action": {"action": "navigate", "navigation_path": path},
+      "styles": {
+        "grid": [{"grid-template-areas": "\"i n\""},
+          {"grid-template-columns": "24px auto"}, {"column-gap": "12px"},
+          {"justify-content": "center"}, {"align-items": "center"}],
+        "card": [{"background": "var(--vh-card-background)"},
+          {"border-radius": "var(--vh-card-radius)"}, {"border": "var(--vh-card-border)"},
+          {"padding": "0 12px"}, {"backdrop-filter": "var(--vh-backdrop-blur)"},
+          {"height": "48px"}, {"width": "170px"}, {"margin": "0 auto"}],
+        "icon": [{"width": "24px"}, {"height": "24px"}, {"color": "var(--vh-icon-white)"}],
+        "name": [{"font-size": "var(--vh-font-size-large)"},
+          {"font-weight": "var(--vh-font-weight-bold)"}, {"color": "var(--vh-text-primary)"}]}}
 
-# Right-align the footer button by placing transparent spacer cards to its left
-# inside a horizontal-stack (same technique as the Kantoor/Woonkamer dashboards).
-def _blank_card():
-    return {"type": "custom:button-card", "color_type": "blank-card",
-      "styles": {"card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"}]}}
 home_row = {"type": "horizontal-stack", "grid_options": {"columns": "full"},
-  "cards": [_blank_card(), _blank_card(), _blank_card(), _blank_card(), home_btn]}
+  "cards": [_nav_btn("Woonkamer", "mdi:home", "/woonkamer-ts"),
+    _nav_btn("Kantoor", "mdi:desk", "/kantoor-ts/kantoor")]}
 
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
   "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
