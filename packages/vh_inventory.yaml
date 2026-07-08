@@ -42,27 +42,22 @@ input_text:
   vh_tts_media_players:
     name: VH TTS Media Players
     max: 255
-    initial: ""
     icon: mdi:speaker-multiple
   vh_tts_msg_shopping_add:
     name: VH TTS Message Shopping Add
     max: 255
-    initial: "{product} toegevoegd aan de boodschappen lijst."
     icon: mdi:message-text
   vh_tts_msg_scan_unresolved:
     name: VH TTS Message Scan Unresolved
     max: 255
-    initial: "Onbekende streepjescode gescand. Handmatige invoer nodig."
     icon: mdi:message-alert
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
-    initial: ""
     icon: mdi:cellphone-message
   vh_notify_msg_shopping_add:
     name: VH Notify Message Shopping Add
     max: 255
-    initial: "{product} toegevoegd aan de boodschappen lijst."
     icon: mdi:message-text
 
 template:
@@ -305,7 +300,6 @@ input_number:
     mode: slider
     unit_of_measurement: "%"
     icon: mdi:volume-high
-    initial: 40
 
 script:
   vh_save_product:
@@ -881,3 +875,64 @@ automation:
               data:
                 title: Boodschappenlijst
                 message: "{{ message | trim }}"
+
+  - id: vh_inventory_seed_defaults
+    alias: VH Inventory - Seed Setting Defaults
+    description: >-
+      On Home Assistant start, seed the TTS/notify setting helpers with sensible
+      defaults ONLY when they are still uninitialised (state unknown/unavailable),
+      e.g. on a fresh install or first boot after adding the package. These helpers
+      deliberately have NO `initial:` so that user changes (selected speakers/devices,
+      edited messages, volume) persist across restarts; without this an `initial:`
+      would reset them on every restart. Values that are already set are left
+      untouched (each set_value falls back to the current state).
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vh_tts_volume
+        data:
+          value: >-
+            {{ 40 if states('input_number.vh_tts_volume') in ['unknown', 'unavailable']
+               else states('input_number.vh_tts_volume') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_media_players
+        data:
+          value: >-
+            {{ '' if states('input_text.vh_tts_media_players') in ['unknown', 'unavailable']
+               else states('input_text.vh_tts_media_players') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_devices
+        data:
+          value: >-
+            {{ '' if states('input_text.vh_notify_devices') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_devices') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_msg_shopping_add
+        data:
+          value: >-
+            {{ '{product} toegevoegd aan de boodschappen lijst.'
+               if states('input_text.vh_tts_msg_shopping_add') in ['unknown', 'unavailable']
+               else states('input_text.vh_tts_msg_shopping_add') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_msg_scan_unresolved
+        data:
+          value: >-
+            {{ 'Onbekende streepjescode gescand. Handmatige invoer nodig.'
+               if states('input_text.vh_tts_msg_scan_unresolved') in ['unknown', 'unavailable']
+               else states('input_text.vh_tts_msg_scan_unresolved') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_shopping_add
+        data:
+          value: >-
+            {{ '{product} toegevoegd aan de boodschappen lijst.'
+               if states('input_text.vh_notify_msg_shopping_add') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_msg_shopping_add') }}
