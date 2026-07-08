@@ -54,6 +54,16 @@ input_text:
     max: 255
     initial: "Onbekende streepjescode gescand. Handmatige invoer nodig."
     icon: mdi:message-alert
+  vh_notify_devices:
+    name: VH Notify Devices
+    max: 255
+    initial: ""
+    icon: mdi:cellphone-message
+  vh_notify_msg_shopping_add:
+    name: VH Notify Message Shopping Add
+    max: 255
+    initial: "{product} toegevoegd aan de boodschappen lijst."
+    icon: mdi:message-text
 
 template:
   # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
@@ -222,6 +232,12 @@ input_boolean:
   vh_tts_announce_scan_unresolved:
     name: VH TTS Announce Scan Unresolved
     icon: mdi:barcode-off
+  vh_notify_enabled:
+    name: VH Notify Enabled
+    icon: mdi:cellphone-message
+  vh_notify_shopping_add:
+    name: VH Notify Shopping Add
+    icon: mdi:cart-plus
 
 input_select:
   vh_language:
@@ -818,3 +834,50 @@ automation:
           message: "{{ message | trim }}"
           tts_platform: cloud
           announce: true
+
+  - id: vh_inventory_notify_mobile
+    alias: VH Inventory - Mobile Notification
+    description: >-
+      Decoupled mobile push notifications for VH-Inventory. Listens for the
+      same vh_inventory_announce event fired by the pyscript backend and sends
+      a push notification to the selected mobile_app devices when a product is
+      added to the shopping list (kind == shopping_add). Runs in parallel and
+      fully independently of the inventory logic, so a slow/failed notification
+      can never affect core functionality. The message text is configurable via
+      input_text.vh_notify_msg_shopping_add (with a {product} placeholder).
+    mode: parallel
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: vh_inventory_announce
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.kind == 'shopping_add' }}"
+      - condition: state
+        entity_id: input_boolean.vh_notify_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.vh_notify_shopping_add
+        state: "on"
+      - condition: template
+        value_template: "{{ (states('input_text.vh_notify_devices') | trim) != '' }}"
+    variables:
+      devices: >-
+        {{ states('input_text.vh_notify_devices').split(',')
+           | map('trim') | reject('eq', '')
+           | reject('in', ['unknown', 'unavailable']) | list }}
+      product: "{{ trigger.event.data.product | default('') | trim }}"
+      message: >-
+        {% set t = states('input_text.vh_notify_msg_shopping_add') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} toegevoegd aan de boodschappen lijst.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) }}
+    actions:
+      - repeat:
+          for_each: "{{ devices }}"
+          sequence:
+            - service: "notify.{{ repeat.item }}"
+              data:
+                title: Boodschappenlijst
+                message: "{{ message | trim }}"

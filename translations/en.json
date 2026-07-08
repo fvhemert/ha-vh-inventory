@@ -93,6 +93,12 @@
   "Shopping-add message": "Shopping-add message",
   "Scan-unresolved message": "Scan-unresolved message",
   "Tip: use {product} for the product name.": "Tip: use {product} for the product name.",
+  "Mobile notifications": "Mobile notifications",
+  "Mobile devices": "Mobile devices",
+  "Notifications enabled": "Notifications enabled",
+  "Notify: added to shopping list": "Notify: added to shopping list",
+  "Notification message": "Notification message",
+  "No mobile devices found.": "No mobile devices found.",
   "Announcement volume": "Announcement volume",
   "No Sonos players found.": "No Sonos players found.",
   "ID": "ID"

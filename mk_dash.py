@@ -1,4 +1,4 @@
-import json, websocket, os, glob
+import json, websocket, os, glob, urllib.request
 
 # --- Connection settings -----------------------------------------------------
 # Set these via environment variables before running:
@@ -78,6 +78,39 @@ def _discover_sonos():
 
 
 SONOS_PLAYERS = _discover_sonos()
+
+
+def _discover_mobile_devices():
+    """Query the HA REST API for notify services on the mobile_app integration
+    at build time. Returns a list of (service, label) sorted by label, where
+    `service` is the notify service object id (e.g. 'mobile_app_iphone') that
+    the notify automation calls as notify.<service>. Labels are prettified from
+    the service id. Returns [] on any failure (the selector renders empty)."""
+    try:
+        req = urllib.request.Request(
+            "http://%s/api/services" % HOST,
+            headers={"Authorization": "Bearer %s" % TOKEN})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        svcs = {}
+        for dom in data:
+            if dom.get("domain") == "notify":
+                svcs = dom.get("services", {}) or {}
+                break
+        out = []
+        for name in svcs:
+            if not name.startswith("mobile_app_"):
+                continue
+            label = name[len("mobile_app_"):].replace("_", " ").strip().title()
+            out.append((name, label or name))
+        out.sort(key=lambda x: x[1].lower())
+        return out
+    except Exception as e:
+        print("mobile device discovery failed:", e)
+        return []
+
+
+MOBILE_DEVICES = _discover_mobile_devices()
 
 # Table styling ported from the production "VH-Inventory" barcode dashboard:
 # transparent row striping + subtle row separators + theme font, on glass cards.
@@ -806,16 +839,18 @@ _tts_msg_hint = {"type": "markdown",
   "content": "*Tip: use {product} for the product name.*", "card_mod": WRAP_CM}
 
 
-def _sonos_chip(eid, label):
-    # JS (button-card) test: is this player's entity_id in the CSV helper?
-    sel = ("var s=states['input_text.vh_tts_media_players'];"
+def _toggle_chip(value, label, icon, helper, service, param):
+    """Generic multi-select toggle chip (custom:button-card). Highlights when
+    `value` is present in the CSV `helper` input_text; tapping calls the pyscript
+    `service` with {param: value} to toggle membership. Shared by the Sonos
+    speaker and mobile-device selectors."""
+    sel = ("var s=states['%s'];"
            "return s && s.state.split(',').map(function(x){return x.trim();})"
-           ".indexOf('%s')!==-1;" % eid)
-    return {"type": "custom:button-card", "name": label, "icon": "mdi:speaker",
+           ".indexOf('%s')!==-1;" % (helper, value))
+    return {"type": "custom:button-card", "name": label, "icon": icon,
       "show_icon": True, "show_name": True,
-      "tap_action": {"action": "call-service",
-        "service": "pyscript.vh_inventory_tts_toggle_player",
-        "service_data": {"player": eid}},
+      "tap_action": {"action": "call-service", "service": service,
+        "service_data": {param: value}},
       "styles": {
         "card": [{"padding": "6px 10px"}, {"border-radius": "0px"},
           {"box-shadow": "none"}, {"min-height": "0"},
@@ -831,6 +866,18 @@ def _sonos_chip(eid, label):
           {"color": "var(--vh-text-primary,rgba(230,230,230,1))"}]}}
 
 
+def _sonos_chip(eid, label):
+    return _toggle_chip(eid, label, "mdi:speaker",
+      "input_text.vh_tts_media_players",
+      "pyscript.vh_inventory_tts_toggle_player", "player")
+
+
+def _notify_chip(svc, label):
+    return _toggle_chip(svc, label, "mdi:cellphone",
+      "input_text.vh_notify_devices",
+      "pyscript.vh_inventory_notify_toggle_device", "device")
+
+
 if SONOS_PLAYERS:
     _sonos_cards = [{"type": "grid", "columns": 2, "square": False,
       "cards": [_sonos_chip(_eid, _lbl) for _eid, _lbl in SONOS_PLAYERS]}]
@@ -841,8 +888,31 @@ tts_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("TTS announcements"), _tts_setting_rows, _tts_msg_hint,
   _scn_section("Sonos speakers")] + _sonos_cards}
 
+# --- Mobile push notifications (Setup tab) ----------------------------------
+# Same decoupled model as TTS: driven by the vh_inventory_announce event, sent
+# by a separate parallel-mode automation. Devices are auto-populated from the
+# notify.mobile_app_* services at build time.
+_notify_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_boolean.vh_notify_enabled", "name": "Notifications enabled",
+   "icon": "mdi:cellphone-message"},
+  {"entity": "input_boolean.vh_notify_shopping_add",
+   "name": "Notify: added to shopping list", "icon": "mdi:cart-plus"},
+  {"entity": "input_text.vh_notify_msg_shopping_add",
+   "name": "Notification message", "icon": "mdi:message-text"}]}
+
+if MOBILE_DEVICES:
+    _notify_cards = [{"type": "grid", "columns": 2, "square": False,
+      "cards": [_notify_chip(_svc, _lbl) for _svc, _lbl in MOBILE_DEVICES]}]
+else:
+    _notify_cards = [{"type": "markdown", "content": "No mobile devices found."}]
+
+notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("Mobile notifications"), _notify_setting_rows, _tts_msg_hint,
+  _scn_section("Mobile devices")] + _notify_cards}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
-  "card": {"type": "vertical-stack", "cards": [app_settings_card, tts_card, scanner_card]}}
+  "card": {"type": "vertical-stack",
+    "cards": [app_settings_card, tts_card, notify_card, scanner_card]}}
 
 
 CART_RED = (

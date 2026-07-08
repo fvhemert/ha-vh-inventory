@@ -1416,3 +1416,26 @@ def vh_inventory_tts_toggle_player(player=None):
         items.append(player)
     input_text.set_value(entity_id="input_text.vh_tts_media_players",
                          value=",".join(items))
+
+
+@service
+def vh_inventory_notify_toggle_device(device=None):
+    """Toggle a mobile_app notify service name in the push-notification target
+    list (stored as a comma-separated list in input_text.vh_notify_devices).
+    Used by the auto-populated mobile-device toggle chips on the Setup page.
+    The stored values are notify service object ids (e.g. 'mobile_app_x'); the
+    notify automation calls `notify.<value>` for each. The parameter is named
+    `device` (not `entity_id`) so HA does not treat it as a service target."""
+    if device in (None, ""):
+        return
+    cur = state.get("input_text.vh_notify_devices") or ""
+    if cur in ("unknown", "unavailable"):
+        cur = ""
+    items = [x.strip() for x in cur.split(",")
+             if x.strip() and x.strip() not in ("unknown", "unavailable")]
+    if device in items:
+        items = [x for x in items if x != device]
+    else:
+        items.append(device)
+    input_text.set_value(entity_id="input_text.vh_notify_devices",
+                         value=",".join(items))

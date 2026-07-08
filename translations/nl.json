@@ -93,6 +93,12 @@
   "Shopping-add message": "Bericht bij toevoegen aan lijst",
   "Scan-unresolved message": "Bericht bij onbekende scan",
   "Tip: use {product} for the product name.": "Tip: gebruik {product} voor de productnaam.",
+  "Mobile notifications": "Mobiele meldingen",
+  "Mobile devices": "Mobiele apparaten",
+  "Notifications enabled": "Meldingen aan",
+  "Notify: added to shopping list": "Melding: toegevoegd aan lijst",
+  "Notification message": "Meldingstekst",
+  "No mobile devices found.": "Geen mobiele apparaten gevonden.",
   "Announcement volume": "Aankondigingsvolume",
   "No Sonos players found.": "Geen Sonos-speakers gevonden.",
   "ID": "ID"
