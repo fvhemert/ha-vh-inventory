@@ -791,6 +791,8 @@ _tts_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
    "icon": "mdi:bullhorn"},
   {"entity": "input_boolean.vh_tts_announce_shopping_add",
    "name": "Announce: added to shopping list", "icon": "mdi:cart-plus"},
+  {"entity": "input_boolean.vh_tts_announce_scan_unresolved",
+   "name": "Announce: scan needs manual update", "icon": "mdi:barcode-off"},
   {"entity": "input_number.vh_tts_volume", "name": "Announcement volume",
    "icon": "mdi:volume-high"}]}
 

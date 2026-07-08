@@ -209,6 +209,9 @@ input_boolean:
   vh_tts_announce_shopping_add:
     name: VH TTS Announce Shopping Add
     icon: mdi:cart-plus
+  vh_tts_announce_scan_unresolved:
+    name: VH TTS Announce Scan Unresolved
+    icon: mdi:barcode-off
 
 input_select:
   vh_language:
@@ -750,24 +753,26 @@ automation:
       vh_inventory_announce event fired by the pyscript backend and speaks a
       Dutch chime-tts message on the selected Sonos players. Runs in parallel
       and fully independently of the inventory logic, so slow/failed TTS can
-      never affect core functionality. Currently handles the "added to the
-      shopping list" announcement (kind == shopping_add).
+      never affect core functionality. Handles the "added to the shopping list"
+      (kind == shopping_add) and "scanned barcode could not be resolved"
+      (kind == scan_unresolved) announcements, each gated by its own toggle.
     mode: parallel
     max: 10
     triggers:
       - trigger: event
         event_type: vh_inventory_announce
     conditions:
-      - condition: template
-        value_template: "{{ trigger.event.data.kind == 'shopping_add' }}"
       - condition: state
         entity_id: input_boolean.vh_tts_enabled
         state: "on"
-      - condition: state
-        entity_id: input_boolean.vh_tts_announce_shopping_add
-        state: "on"
       - condition: template
         value_template: "{{ (states('input_text.vh_tts_media_players') | trim) != '' }}"
+      - condition: template
+        value_template: >-
+          {{ (trigger.event.data.kind == 'shopping_add'
+                and is_state('input_boolean.vh_tts_announce_shopping_add', 'on'))
+             or (trigger.event.data.kind == 'scan_unresolved'
+                and is_state('input_boolean.vh_tts_announce_scan_unresolved', 'on')) }}
     variables:
       players: >-
         {{ states('input_text.vh_tts_media_players').split(',')
@@ -775,6 +780,12 @@ automation:
            | reject('in', ['unknown', 'unavailable']) | list }}
       volume: "{{ states('input_number.vh_tts_volume') | float(40) / 100 }}"
       product: "{{ trigger.event.data.product | default('') | trim }}"
+      message: >-
+        {% if trigger.event.data.kind == 'scan_unresolved' %}
+        Onbekende streepjescode gescand. Handmatige invoer nodig.
+        {% else %}
+        {{ product }} toegevoegd aan de boodschappen lijst.
+        {% endif %}
     actions:
       - service: chime_tts.say
         target:
@@ -786,6 +797,6 @@ automation:
           tts_speed: 100
           tts_pitch: 0
           volume_level: "{{ volume }}"
-          message: "{{ product }} toegevoegd aan de boodschappen lijst."
+          message: "{{ message | trim }}"
           tts_platform: cloud
           announce: true

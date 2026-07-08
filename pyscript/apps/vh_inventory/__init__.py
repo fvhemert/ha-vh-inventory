@@ -439,6 +439,18 @@ def _announce_shopping_add(pid):
         pass
 
 
+def _announce_scan_unresolved(bc):
+    """Fire a fire-and-forget event announcing that a scanned barcode could not
+    be resolved and needs a manual update. The separate vh_inventory_announce
+    automation does the slow chime-tts work, so this never affects core scan
+    handling. Wrapped in try/except for the same reason."""
+    try:
+        event.fire("vh_inventory_announce", kind="scan_unresolved",
+                   barcode=bc or "")
+    except Exception:
+        pass
+
+
 def _fetch_one(table, cols, rid):
     conn = _conn()
     try:
@@ -741,6 +753,7 @@ def _scan_resolve_row(rid, bc):
         _exec("UPDATE scan_queue SET state='Unknown' WHERE id=?", [rid])
         _log_history("resolve", "scan_queue", rid,
                      "Could not resolve %s (Unknown)" % bc)
+        _announce_scan_unresolved(bc)
     return info
 
 
