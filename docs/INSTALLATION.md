@@ -49,6 +49,13 @@ VH-Inventory has three layers:
   **Epson TM-T20II**) reachable from Home Assistant, plus the **ESC/POS Printer**
   integration that provides the `escpos_printer.print_text` service. Only needed if you want
   the Shopping-list and Inventory **Print** features.
+- *(Optional — for spoken announcements)* The **[Chime TTS](https://github.com/nimroddolev/chime_tts)**
+  integration (install via HACS) and one or more **Sonos** speakers, plus a TTS platform
+  (e.g. Home Assistant Cloud). Only needed for the Setup-tab *Spoken announcements (TTS)*
+  feature; the announcements run fully decoupled from the core inventory logic.
+- *(Optional — for mobile push)* The **Home Assistant companion app** installed on one or
+  more devices (registers `mobile_app_*` notify services). Only needed for the Setup-tab
+  *Mobile notifications* feature.
 
 ---
 

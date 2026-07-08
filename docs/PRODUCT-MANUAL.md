@@ -223,6 +223,10 @@ unresolvable barcode. Enter the product details and save:
 
 The scan-queue row is removed once resolved. Completed scans are cleared automatically.
 
+> **Heads-up:** if the *Unresolved scan* announcement/notification is enabled on the Setup
+> tab, an Unknown barcode also triggers a spoken (TTS) announcement and/or a mobile push so
+> you know a manual entry is waiting.
+
 ---
 
 ## 8. History (audit log)
@@ -242,7 +246,8 @@ growing without bound.
 ## 9. Settings & language (Setup tab)
 
 The **Setup** tab holds application settings: the **Language** selector, a **Show ID
-columns** toggle, and a **Hide header (kiosk)** toggle.
+columns** toggle, a **Hide header (kiosk)** toggle, and the **Spoken announcements (TTS)**
+and **Mobile notifications** sections.
 
 ![Setup tab](images/09-setup.png)
 
@@ -275,6 +280,42 @@ Winkel, Bewerk, Verw., Toevoegen*) while the product data stays exactly as enter
 > name to the language selector, and rebuild the dashboard. See the Installation Guide,
 > section 10.
 
+### Spoken announcements (TTS)
+
+Optional Dutch voice announcements play through your Sonos speakers via the
+[Chime TTS](https://github.com/nimroddolev/chime_tts) integration. They run **independently
+of the core inventory logic**, so a slow or offline speaker never blocks or delays scanning.
+
+- **Enable announcements** — master on/off switch for all spoken announcements.
+- **Sonos speakers for TTS announcements** — pick which speakers play the announcements
+  (multi-select chips; tap to toggle).
+- **Volume** — slider that sets the announcement volume. Any media already playing on a
+  target speaker is briefly interrupted for the announcement and then resumes.
+- **Per-announcement switches** — turn each announcement on/off individually:
+  - *Product added to shopping list* — says "&lt;product&gt; toegevoegd aan de
+    boodschappenlijst."
+  - *Unresolved scan* — announced when a scanned barcode can't be resolved and needs
+    manual entry.
+- **Editable message text** — each announcement's wording is editable in its own input
+  field. Use the `{product}` placeholder in the shopping-list message to insert the
+  product name.
+
+### Mobile notifications
+
+Optional push notifications to the Home Assistant companion app, configured just like TTS
+and equally decoupled from the core logic:
+
+- **Enable notifications** — master on/off switch.
+- **Mobile devices for notifications** — pick which devices receive the push. The list is
+  built automatically from the `mobile_app_*` notify services registered in your Home
+  Assistant.
+- **Per-notification switch & editable text** — the *product added to shopping list*
+  notification, with its own on/off switch and editable message text.
+
+Spoken announcements and mobile notifications listen to the same internal event, so if both
+are enabled a product added to the shopping list triggers a spoken announcement **and** a
+push notification.
+
 ---
 
 ## 10. Tips & behaviours
@@ -290,7 +331,10 @@ Winkel, Bewerk, Verw., Toevoegen*) while the product data stays exactly as enter
 - **History retention:** the tab shows the latest 50 entries; rows older than 3 months are
   purged automatically.
 - **Kiosk mode:** the *Hide header (kiosk)* toggle on the Setup tab shows/hides the HA top bar.
-- **Woonkamer button:** the right-aligned footer button jumps to the Woonkamer touchscreen.
+- **Footer navigation:** two right-aligned footer buttons jump to the **Woonkamer** and
+  **Kantoor** touchscreen dashboards.
+- **Decoupled notifications:** spoken (TTS) announcements and mobile push notifications run
+  independently of the core inventory logic, so they never block or slow down scanning.
 - **Duplicate-name guard:** locations, categories and stores must be unique.
 - **Self-healing data model:** the database and any new columns are created automatically;
   you never run SQL by hand.
