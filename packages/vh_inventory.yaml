@@ -44,6 +44,16 @@ input_text:
     max: 255
     initial: ""
     icon: mdi:speaker-multiple
+  vh_tts_msg_shopping_add:
+    name: VH TTS Message Shopping Add
+    max: 255
+    initial: "{product} toegevoegd aan de boodschappen lijst."
+    icon: mdi:message-text
+  vh_tts_msg_scan_unresolved:
+    name: VH TTS Message Scan Unresolved
+    max: 255
+    initial: "Onbekende streepjescode gescand. Handmatige invoer nodig."
+    icon: mdi:message-alert
 
 template:
   # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
@@ -782,9 +792,17 @@ automation:
       product: "{{ trigger.event.data.product | default('') | trim }}"
       message: >-
         {% if trigger.event.data.kind == 'scan_unresolved' %}
-        Onbekende streepjescode gescand. Handmatige invoer nodig.
+        {% set t = states('input_text.vh_tts_msg_scan_unresolved') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = 'Onbekende streepjescode gescand. Handmatige invoer nodig.' %}
+        {% endif %}
+        {{ t }}
         {% else %}
-        {{ product }} toegevoegd aan de boodschappen lijst.
+        {% set t = states('input_text.vh_tts_msg_shopping_add') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} toegevoegd aan de boodschappen lijst.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) }}
         {% endif %}
     actions:
       - service: chime_tts.say

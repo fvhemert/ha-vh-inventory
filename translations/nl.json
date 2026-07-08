@@ -90,6 +90,9 @@
   "Announcements enabled": "Aankondigingen aan",
   "Announce: added to shopping list": "Aankondiging: toegevoegd aan lijst",
   "Announce: scan needs manual update": "Aankondiging: scan handmatig bijwerken",
+  "Shopping-add message": "Bericht bij toevoegen aan lijst",
+  "Scan-unresolved message": "Bericht bij onbekende scan",
+  "Tip: use {product} for the product name.": "Tip: gebruik {product} voor de productnaam.",
   "Announcement volume": "Aankondigingsvolume",
   "No Sonos players found.": "Geen Sonos-speakers gevonden.",
   "ID": "ID"

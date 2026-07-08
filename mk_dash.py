@@ -791,10 +791,19 @@ _tts_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
    "icon": "mdi:bullhorn"},
   {"entity": "input_boolean.vh_tts_announce_shopping_add",
    "name": "Announce: added to shopping list", "icon": "mdi:cart-plus"},
+  {"entity": "input_text.vh_tts_msg_shopping_add",
+   "name": "Shopping-add message", "icon": "mdi:message-text"},
   {"entity": "input_boolean.vh_tts_announce_scan_unresolved",
    "name": "Announce: scan needs manual update", "icon": "mdi:barcode-off"},
+  {"entity": "input_text.vh_tts_msg_scan_unresolved",
+   "name": "Scan-unresolved message", "icon": "mdi:message-alert"},
   {"entity": "input_number.vh_tts_volume", "name": "Announcement volume",
    "icon": "mdi:volume-high"}]}
+
+# Hint shown under the message fields; {product} is substituted with the product
+# name at announce time. (Kept as its own key so it flows through i18n.)
+_tts_msg_hint = {"type": "markdown",
+  "content": "*Tip: use {product} for the product name.*", "card_mod": WRAP_CM}
 
 
 def _sonos_chip(eid, label):
@@ -829,7 +838,7 @@ else:
     _sonos_cards = [{"type": "markdown", "content": "No Sonos players found."}]
 
 tts_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
-  _scn_section("TTS announcements"), _tts_setting_rows,
+  _scn_section("TTS announcements"), _tts_setting_rows, _tts_msg_hint,
   _scn_section("Sonos speakers")] + _sonos_cards}
 
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
