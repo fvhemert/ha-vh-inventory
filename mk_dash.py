@@ -1115,22 +1115,20 @@ def _nav_btn(name, icon, path):
         "card": [{"background": "var(--vh-card-background)"},
           {"border-radius": "var(--vh-card-radius)"}, {"border": "var(--vh-card-border)"},
           {"padding": "0 12px"}, {"backdrop-filter": "var(--vh-backdrop-blur)"},
-          {"height": "48px"}, {"width": "170px"}, {"margin": "0 auto"}],
+          {"height": "48px"}, {"width": "170px"}, {"margin": "0"}],
         "icon": [{"width": "24px"}, {"height": "24px"}, {"color": "var(--vh-icon-white)"}],
         "name": [{"font-size": "var(--vh-font-size-large)"},
           {"font-weight": "var(--vh-font-weight-bold)"}, {"color": "var(--vh-text-primary)"}]}}
 
-home_pair = {"type": "horizontal-stack",
-  "cards": [_nav_btn("Woonkamer", "mdi:home", "/woonkamer-ts"),
-    _nav_btn("Kantoor", "mdi:desk", "/kantoor-ts/kantoor")]}
-
-# Right-align the button pair by placing a transparent spacer card to its left
-# inside a full-width horizontal-stack (same technique as the original footer).
-def _blank_card():
-    return {"type": "custom:button-card", "color_type": "blank-card",
-      "styles": {"card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"}]}}
+# Right-align the button pair against the far-right edge of the footer. A
+# horizontal-stack normally stretches its children to equal widths; override its
+# flex layout via card_mod so the two fixed-width buttons hug the right, tightly.
 home_row = {"type": "horizontal-stack", "grid_options": {"columns": "full"},
-  "cards": [_blank_card(), home_pair]}
+  "cards": [_nav_btn("Woonkamer", "mdi:home", "/woonkamer-ts"),
+    _nav_btn("Kantoor", "mdi:desk", "/kantoor-ts/kantoor")],
+  "card_mod": {"style":
+    "#root { justify-content: flex-end !important; gap: 8px !important; }"
+    " #root > * { flex: 0 0 auto !important; }"}}
 
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
   "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
