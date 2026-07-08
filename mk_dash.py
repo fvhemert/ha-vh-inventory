@@ -861,17 +861,18 @@ def _toggle_chip(value, label, icon, helper, service, param):
       "tap_action": {"action": "call-service", "service": service,
         "service_data": {param: value}},
       "styles": {
-        "card": [{"padding": "6px 10px"}, {"border-radius": "0px"},
-          {"box-shadow": "none"}, {"min-height": "0"},
+        "card": [{"padding": "0 8px"}, {"border-radius": "0px"},
+          {"box-shadow": "none"}, {"height": "34px"}, {"min-height": "0"},
           {"border": "[[[ return (function(){%s})() ? '1px solid var(--amber-color,#ffc107)' : 'var(--vh-card-border,1px solid rgba(255,255,255,0.25))'; ]]]" % sel},
           {"background": "[[[ return (function(){%s})() ? 'rgba(255,193,7,0.18)' : 'transparent'; ]]]" % sel}],
         "grid": [{"grid-template-areas": '"i n"'},
           {"grid-template-columns": "min-content 1fr"}, {"align-items": "center"},
-          {"gap": "8px"}],
-        "icon": [{"width": "18px"},
+          {"gap": "6px"}],
+        "icon": [{"width": "16px"},
           {"color": "[[[ return (function(){%s})() ? 'var(--amber-color,#ffc107)' : 'var(--vh-text-secondary,rgba(200,200,200,0.9))'; ]]]" % sel}],
-        "name": [{"font-size": "13px"}, {"justify-self": "start"},
-          {"white-space": "normal"},
+        "name": [{"font-size": "11.5px"}, {"line-height": "1.1"},
+          {"justify-self": "start"}, {"white-space": "nowrap"},
+          {"overflow": "hidden"}, {"text-overflow": "ellipsis"},
           {"color": "var(--vh-text-primary,rgba(230,230,230,1))"}]}}
 
 
@@ -888,7 +889,7 @@ def _notify_chip(svc, label):
 
 
 if SONOS_PLAYERS:
-    _sonos_cards = [{"type": "grid", "columns": 2, "square": False,
+    _sonos_cards = [{"type": "grid", "columns": 3, "square": False,
       "cards": [_sonos_chip(_eid, _lbl) for _eid, _lbl in SONOS_PLAYERS]}]
 else:
     _sonos_cards = [{"type": "markdown", "content": "No Sonos players found."}]
@@ -910,7 +911,7 @@ _notify_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
    "name": "Notification message", "icon": "mdi:message-text"}]}
 
 if MOBILE_DEVICES:
-    _notify_cards = [{"type": "grid", "columns": 2, "square": False,
+    _notify_cards = [{"type": "grid", "columns": 3, "square": False,
       "cards": [_notify_chip(_svc, _lbl) for _svc, _lbl in MOBILE_DEVICES]}]
 else:
     _notify_cards = [{"type": "markdown", "content": "No mobile devices found."}]
