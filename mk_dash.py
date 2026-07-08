@@ -835,8 +835,17 @@ _tts_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
 
 # Hint shown under the message fields; {product} is substituted with the product
 # name at announce time. (Kept as its own key so it flows through i18n.)
+# Compact card_mod so the one-line tip does not render as a tall padded block.
+HINT_CM = {"style":
+  "ha-card { border: var(--vh-card-border,1px solid rgba(255,255,255,0.25))"
+  " !important; border-radius: var(--vh-card-radius,0px) !important;"
+  " background: var(--ha-card-background, var(--card-background-color))"
+  " !important; box-shadow: none !important; }"
+  " ha-markdown { padding: 4px 10px !important; }"
+  " ha-markdown p { margin: 0 !important; font-size: 12px !important;"
+  " line-height: 1.3 !important; }"}
 _tts_msg_hint = {"type": "markdown",
-  "content": "*Tip: use {product} for the product name.*", "card_mod": WRAP_CM}
+  "content": "*Tip: use {product} for the product name.*", "card_mod": HINT_CM}
 
 
 def _toggle_chip(value, label, icon, helper, service, param):
@@ -886,7 +895,7 @@ else:
 
 tts_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("TTS announcements"), _tts_setting_rows, _tts_msg_hint,
-  _scn_section("Sonos speakers")] + _sonos_cards}
+  _scn_section("Sonos speakers for TTS announcements")] + _sonos_cards}
 
 # --- Mobile push notifications (Setup tab) ----------------------------------
 # Same decoupled model as TTS: driven by the vh_inventory_announce event, sent
@@ -908,7 +917,7 @@ else:
 
 notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Mobile notifications"), _notify_setting_rows, _tts_msg_hint,
-  _scn_section("Mobile devices")] + _notify_cards}
+  _scn_section("Mobile devices for notifications")] + _notify_cards}
 
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",
