@@ -30,6 +30,55 @@ def _load_translations():
 
 I18N_MAP, I18N_LANGS, I18N_KEYS = _load_translations()
 
+
+def _discover_sonos():
+    """Query the HA entity registry at build time for media_player entities on
+    the 'sonos' platform. Returns a list of (entity_id, label) sorted by label.
+    Friendly names come from current states; duplicate names are disambiguated
+    with the object_id so every chip is distinguishable. Returns [] on any
+    failure (the selector then simply renders empty)."""
+    try:
+        w = websocket.create_connection(f"ws://{HOST}/api/websocket")
+        def _r(): return json.loads(w.recv())
+        _r(); w.send(json.dumps({"type": "auth", "access_token": TOKEN})); _r()
+        w.send(json.dumps({"id": 1, "type": "config/entity_registry/list"}))
+        reg = []
+        while True:
+            m = _r()
+            if m.get("id") == 1:
+                reg = m.get("result", []) or []
+                break
+        w.send(json.dumps({"id": 2, "type": "get_states"}))
+        states = []
+        while True:
+            m = _r()
+            if m.get("id") == 2:
+                states = m.get("result", []) or []
+                break
+        w.close()
+        fname = {s["entity_id"]: (s.get("attributes", {}) or {}).get("friendly_name")
+                 for s in states}
+        sonos = [e["entity_id"] for e in reg
+                 if e.get("platform") == "sonos"
+                 and e.get("entity_id", "").startswith("media_player.")]
+        base = {eid: (fname.get(eid) or eid.split(".", 1)[1]) for eid in sonos}
+        counts = {}
+        for nm in base.values():
+            counts[nm] = counts.get(nm, 0) + 1
+        out = []
+        for eid in sonos:
+            nm = base[eid]
+            label = nm if counts[nm] == 1 else "%s (%s)" % (nm, eid.split(".", 1)[1])
+            out.append((eid, label))
+        out.sort(key=lambda x: x[1].lower())
+        return out
+    except Exception as e:
+        print("sonos discovery failed:", e)
+        return []
+
+
+SONOS_PLAYERS = _discover_sonos()
+
 # Table styling ported from the production "VH-Inventory" barcode dashboard:
 # transparent row striping + subtle row separators + theme font, on glass cards.
 CSS = {"table+": "width:100%;padding-top:0 !important;",
@@ -733,8 +782,56 @@ lang_card["card_mod"] = LANG_CM
 app_settings_card = {"type": "vertical-stack", "card_mod": WRAP_CM,
   "cards": [_scn_section("Application settings"), lang_card]}
 
+# --- TTS announcements (Setup tab) ------------------------------------------
+# Decoupled Dutch chime-tts announcements. The setting rows drive the helpers;
+# the Sonos chips are auto-populated from the entity registry at build time and
+# toggle membership in input_text.vh_tts_media_players via a pyscript service.
+_tts_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_boolean.vh_tts_enabled", "name": "Announcements enabled",
+   "icon": "mdi:bullhorn"},
+  {"entity": "input_boolean.vh_tts_announce_shopping_add",
+   "name": "Announce: added to shopping list", "icon": "mdi:cart-plus"},
+  {"entity": "input_number.vh_tts_volume", "name": "Announcement volume",
+   "icon": "mdi:volume-high"}]}
+
+
+def _sonos_chip(eid, label):
+    # JS (button-card) test: is this player's entity_id in the CSV helper?
+    sel = ("var s=states['input_text.vh_tts_media_players'];"
+           "return s && s.state.split(',').map(function(x){return x.trim();})"
+           ".indexOf('%s')!==-1;" % eid)
+    return {"type": "custom:button-card", "name": label, "icon": "mdi:speaker",
+      "show_icon": True, "show_name": True,
+      "tap_action": {"action": "call-service",
+        "service": "pyscript.vh_inventory_tts_toggle_player",
+        "service_data": {"player": eid}},
+      "styles": {
+        "card": [{"padding": "6px 10px"}, {"border-radius": "0px"},
+          {"box-shadow": "none"}, {"min-height": "0"},
+          {"border": "[[[ return (function(){%s})() ? '1px solid var(--amber-color,#ffc107)' : 'var(--vh-card-border,1px solid rgba(255,255,255,0.25))'; ]]]" % sel},
+          {"background": "[[[ return (function(){%s})() ? 'rgba(255,193,7,0.18)' : 'transparent'; ]]]" % sel}],
+        "grid": [{"grid-template-areas": '"i n"'},
+          {"grid-template-columns": "min-content 1fr"}, {"align-items": "center"},
+          {"gap": "8px"}],
+        "icon": [{"width": "18px"},
+          {"color": "[[[ return (function(){%s})() ? 'var(--amber-color,#ffc107)' : 'var(--vh-text-secondary,rgba(200,200,200,0.9))'; ]]]" % sel}],
+        "name": [{"font-size": "13px"}, {"justify-self": "start"},
+          {"white-space": "normal"},
+          {"color": "var(--vh-text-primary,rgba(230,230,230,1))"}]}}
+
+
+if SONOS_PLAYERS:
+    _sonos_cards = [{"type": "grid", "columns": 2, "square": False,
+      "cards": [_sonos_chip(_eid, _lbl) for _eid, _lbl in SONOS_PLAYERS]}]
+else:
+    _sonos_cards = [{"type": "markdown", "content": "No Sonos players found."}]
+
+tts_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("TTS announcements"), _tts_setting_rows,
+  _scn_section("Sonos speakers")] + _sonos_cards}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
-  "card": {"type": "vertical-stack", "cards": [app_settings_card, scanner_card]}}
+  "card": {"type": "vertical-stack", "cards": [app_settings_card, tts_card, scanner_card]}}
 
 
 CART_RED = (

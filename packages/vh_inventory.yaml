@@ -39,6 +39,11 @@ input_text:
     name: VH Products Search
   vh_shopping_search:
     name: VH Shopping Search
+  vh_tts_media_players:
+    name: VH TTS Media Players
+    max: 255
+    initial: ""
+    icon: mdi:speaker-multiple
 
 template:
   # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
@@ -198,6 +203,12 @@ input_boolean:
   vh_kiosk_mode:
     name: VH Kiosk Mode
     icon: mdi:fullscreen
+  vh_tts_enabled:
+    name: VH TTS Enabled
+    icon: mdi:bullhorn
+  vh_tts_announce_shopping_add:
+    name: VH TTS Announce Shopping Add
+    icon: mdi:cart-plus
 
 input_select:
   vh_language:
@@ -257,6 +268,15 @@ input_number:
     step: 1
     mode: box
     initial: 1
+  vh_tts_volume:
+    name: VH TTS Volume
+    min: 0
+    max: 100
+    step: 5
+    mode: slider
+    unit_of_measurement: "%"
+    icon: mdi:volume-high
+    initial: 40
 
 script:
   vh_save_product:
@@ -722,3 +742,50 @@ automation:
           entity_id:
             - switch.barcode_01_print_inventory_list
             - switch.barcode_02_print_inventory_list
+
+  - id: vh_inventory_announce
+    alias: VH Inventory - TTS Announcement
+    description: >-
+      Decoupled TTS announcements for VH-Inventory. Listens for the
+      vh_inventory_announce event fired by the pyscript backend and speaks a
+      Dutch chime-tts message on the selected Sonos players. Runs in parallel
+      and fully independently of the inventory logic, so slow/failed TTS can
+      never affect core functionality. Currently handles the "added to the
+      shopping list" announcement (kind == shopping_add).
+    mode: parallel
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: vh_inventory_announce
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.kind == 'shopping_add' }}"
+      - condition: state
+        entity_id: input_boolean.vh_tts_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.vh_tts_announce_shopping_add
+        state: "on"
+      - condition: template
+        value_template: "{{ (states('input_text.vh_tts_media_players') | trim) != '' }}"
+    variables:
+      players: >-
+        {{ states('input_text.vh_tts_media_players').split(',')
+           | map('trim') | reject('eq', '')
+           | reject('in', ['unknown', 'unavailable']) | list }}
+      volume: "{{ states('input_number.vh_tts_volume') | float(40) / 100 }}"
+      product: "{{ trigger.event.data.product | default('') | trim }}"
+    actions:
+      - service: chime_tts.say
+        target:
+          entity_id: "{{ players }}"
+        data:
+          chime_path: bells
+          offset: 450
+          final_delay: 0
+          tts_speed: 100
+          tts_pitch: 0
+          volume_level: "{{ volume }}"
+          message: "{{ product }} toegevoegd aan de boodschappen lijst."
+          tts_platform: cloud
+          announce: true

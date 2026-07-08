@@ -315,6 +315,7 @@ def _reconcile_shopping(before, after):
                               "Auto-added product_id=%d qty=%d (stock %d < %d)"
                               % (pid, int(add_qty or 1), a, threshold))
                     changed = True
+                    _announce_shopping_add(pid)
         if changed:
             conn.commit()
     finally:
@@ -422,6 +423,20 @@ def _log_history(action, entity, entity_id=None, detail=None):
     finally:
         conn.close()
     _publish()
+
+
+def _announce_shopping_add(pid):
+    """Fire a fire-and-forget event announcing that a product was added to the
+    shopping list. A separate HA automation (vh_inventory_announce) does the
+    slow chime-tts work, so TTS runs fully independently of the inventory logic.
+    Wrapped in try/except so a notification problem can never break core
+    functionality."""
+    try:
+        name, _ = _product_name_mfr(pid)
+        if name:
+            event.fire("vh_inventory_announce", kind="shopping_add", product=name)
+    except Exception:
+        pass
 
 
 def _fetch_one(table, cols, rid):
@@ -586,6 +601,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             _log_history("auto-add", "shopping_list", shop_id,
                          "Scan-use(new): added to shopping qty=%d (product_id=%d)"
                          % (add_qty, pid))
+            _announce_shopping_add(pid)
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
@@ -701,6 +717,7 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
         _log_history("auto-add", "shopping_list", shop_id,
                      "Resolve-use: added to shopping qty=%d (product_id=%d)"
                      % (add_qty, pid))
+        _announce_shopping_add(pid)
     _delete_scan_queue_row(rid, action, "Unknown")
 
 
@@ -1295,6 +1312,7 @@ def vh_inventory_add_shopping(product=None, quantity=1):
           [pid, int(quantity or 1)])
     _log_history("add", "shopping_list", None,
                  "Added '%s' x%d to shopping list" % (product, int(quantity or 1)))
+    _announce_shopping_add(pid)
 
 
 @service
@@ -1362,3 +1380,26 @@ def vh_inventory_shopping_toggle(product_id=None):
         _exec("INSERT INTO shopping_list(product_id,quantity) VALUES(?,1)", [pid])
         _log_history("add", "shopping_list", None,
                      "Added product_id=%d to shopping list (tap)" % pid)
+        _announce_shopping_add(pid)
+
+
+@service
+def vh_inventory_tts_toggle_player(player=None):
+    """Toggle a media_player entity_id in the TTS announcement target list
+    (stored as a comma-separated list in input_text.vh_tts_media_players).
+    Used by the auto-populated Sonos toggle chips on the Setup page. The
+    parameter is named `player` (not `entity_id`) so HA does not treat it as a
+    service target."""
+    if player in (None, ""):
+        return
+    cur = state.get("input_text.vh_tts_media_players") or ""
+    if cur in ("unknown", "unavailable"):
+        cur = ""
+    items = [x.strip() for x in cur.split(",")
+             if x.strip() and x.strip() not in ("unknown", "unavailable")]
+    if player in items:
+        items = [x for x in items if x != player]
+    else:
+        items.append(player)
+    input_text.set_value(entity_id="input_text.vh_tts_media_players",
+                         value=",".join(items))
