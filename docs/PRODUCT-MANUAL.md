@@ -286,6 +286,8 @@ Optional Dutch voice announcements play through your Sonos speakers via the
 [Chime TTS](https://github.com/nimroddolev/chime_tts) integration. They run **independently
 of the core inventory logic**, so a slow or offline speaker never blocks or delays scanning.
 
+![TTS announcements section](images/13-tts.png)
+
 - **Enable announcements** — master on/off switch for all spoken announcements.
 - **Sonos speakers for TTS announcements** — pick which speakers play the announcements
   (multi-select chips; tap to toggle).
@@ -304,6 +306,8 @@ of the core inventory logic**, so a slow or offline speaker never blocks or dela
 
 Optional push notifications to the Home Assistant companion app, configured just like TTS
 and equally decoupled from the core logic:
+
+![Mobile notifications section](images/14-mobile-notifications.png)
 
 - **Enable notifications** — master on/off switch.
 - **Mobile devices for notifications** — pick which devices receive the push. The list is
