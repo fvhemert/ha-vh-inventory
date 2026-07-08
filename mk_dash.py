@@ -1120,9 +1120,17 @@ def _nav_btn(name, icon, path):
         "name": [{"font-size": "var(--vh-font-size-large)"},
           {"font-weight": "var(--vh-font-weight-bold)"}, {"color": "var(--vh-text-primary)"}]}}
 
-home_row = {"type": "horizontal-stack", "grid_options": {"columns": "full"},
+home_pair = {"type": "horizontal-stack",
   "cards": [_nav_btn("Woonkamer", "mdi:home", "/woonkamer-ts"),
     _nav_btn("Kantoor", "mdi:desk", "/kantoor-ts/kantoor")]}
+
+# Right-align the button pair by placing a transparent spacer card to its left
+# inside a full-width horizontal-stack (same technique as the original footer).
+def _blank_card():
+    return {"type": "custom:button-card", "color_type": "blank-card",
+      "styles": {"card": [{"background": "none"}, {"border": "none"}, {"box-shadow": "none"}]}}
+home_row = {"type": "horizontal-stack", "grid_options": {"columns": "full"},
+  "cards": [_blank_card(), home_pair]}
 
 view = {"type": "sections", "max_columns": 4, "title": "Main", "path": "main",
   "theme": "VH-Inventory", "background": "var(--vh-dashboard-gradient)",
