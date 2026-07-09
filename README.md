@@ -4,7 +4,8 @@ A home **inventory & grocery system** for Home Assistant. Track what you own, wh
 stored, how much you have, and what you need to buy — driven by barcode scanning or manual
 entry, with a fully multi-language UI (English / Nederlands), thermal-printer support, and
 optional decoupled Dutch voice announcements (Chime TTS on Sonos) and mobile push
-notifications.
+notifications. The inventory stays tidy: products that run out (stock 0) drop off the list
+automatically while staying on your shopping list.
 
 ## Quick start
 

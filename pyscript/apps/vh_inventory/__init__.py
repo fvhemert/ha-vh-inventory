@@ -271,6 +271,30 @@ def _product_totals():
     return {pid: tot for pid, tot in rows}
 
 
+def _purge_zero_stock_rows(conn, pids):
+    """Enforce the 'no zero-stock products in the inventory' rule: for every
+    product in pids whose total stock quantity is 0, delete its stock rows so
+    it drops out of the inventory list. The product record and any shopping-list
+    entry are deliberately left intact (so it stays on the shopping list and can
+    be restocked later). Operates on an existing connection (no commit); returns
+    the number of products purged."""
+    purged = 0
+    for pid in pids:
+        if pid is None:
+            continue
+        row = conn.execute(
+            "SELECT COALESCE(SUM(quantity),0), COUNT(*) FROM stock "
+            "WHERE product_id=?", [pid]).fetchone()
+        total = row[0] or 0
+        nrows = row[1] or 0
+        if nrows and total == 0:
+            conn.execute("DELETE FROM stock WHERE product_id=?", [pid])
+            _hist_row(conn, "auto-remove", "stock", pid,
+                      "Removed product_id=%d from inventory (stock reached 0)" % pid)
+            purged += 1
+    return purged
+
+
 def _reconcile_shopping(before, after):
     """Reconcile the shopping list against an inventory change.
     before/after are {product_id: total}. For each product whose total:
@@ -316,6 +340,11 @@ def _reconcile_shopping(before, after):
                               % (pid, int(add_qty or 1), a, threshold))
                     changed = True
                     _announce_shopping_add(pid)
+        # Enforce the no-zero-stock rule for the products touched by this change.
+        # Runs after the shopping-list logic (which used the pre-purge totals),
+        # so auto-add on reaching 0 stays intact.
+        if _purge_zero_stock_rows(conn, pids):
+            changed = True
         if changed:
             conn.commit()
     finally:
@@ -480,9 +509,36 @@ def _fetch_one_sql(sql, params):
     return dict(zip(cols, row)) if row else None
 
 
+_ZERO_CLEANUP_DONE = [False]
+
+
+def _cleanup_zero_stock():
+    """One-time legacy sweep run on HA start: remove any pre-existing product
+    whose total stock is 0 so the 'no zero-stock in inventory' rule also holds
+    for data that predates this feature. Product records and shopping-list
+    entries are left intact."""
+    purged = 0
+    conn = _conn()
+    try:
+        pids = [r[0] for r in conn.execute(
+            "SELECT product_id FROM stock GROUP BY product_id "
+            "HAVING COALESCE(SUM(quantity),0)=0").fetchall()]
+        purged = _purge_zero_stock_rows(conn, pids)
+        if purged:
+            conn.commit()
+    finally:
+        conn.close()
+    if purged:
+        _log_history("cleanup", "stock", None,
+                     "Startup cleanup: removed %d zero-stock product(s)" % purged)
+
+
 @time_trigger("startup", "period(0, 60s)")
 def vh_inventory_poll():
     _ensure_schema()
+    if not _ZERO_CLEANUP_DONE[0]:
+        _cleanup_zero_stock()
+        _ZERO_CLEANUP_DONE[0] = True
     _publish()
 
 
@@ -594,19 +650,15 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
-    # Case 4: Use + New -> create product (same settings), stock 0, and put it
-    # on the shopping list at its auto-add quantity (as if below threshold).
+    # Case 4: Use + New -> create product (same settings) and put it on the
+    # shopping list at its auto-add quantity (as if below threshold). No stock
+    # row is created: a zero-stock product must not appear in the inventory.
     elif action == "Use" and info:
         pid = _create_product_from_scan(bc, info)
         if pid:
             prod = _fetch_one_sql(
                 "SELECT auto_add_quantity FROM products WHERE id=?", [pid])
             add_qty = int((prod or {}).get("auto_add_quantity") or 1)
-            inv_id = _insert_id(
-                "INSERT INTO stock(product_id,location_id,quantity) "
-                "VALUES(?,NULL,0)", [pid])
-            _log_history("add", "stock", inv_id,
-                         "Scan-use(new): stock 0 (product_id=%d)" % pid)
             shop_id = _insert_id(
                 "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
                 [pid, add_qty])
@@ -676,8 +728,9 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
     """Save a manually-resolved product (from the Resolve Product popup) and, in
     the same call, finish the queued scan action recorded in
     input_text.vh_pending_scan_id. This is one service (not a chain of two) so
-    HA-script execution stays reliable. Add -> stock 1; Use -> stock 0 +
-    shopping at the product's auto-add quantity; then the scan_queue row is
+    HA-script execution stays reliable. Add -> stock 1; Use -> shopping only
+    at the product's auto-add quantity (no stock row, so a zero-stock product
+    never appears in the inventory); then the scan_queue row is
     deleted and the pending marker cleared. With no pending resolve it simply
     adds the product, like vh_inventory_add_product."""
     if not name:
@@ -718,11 +771,6 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
     if action == "Add":
         _add_inventory_qty(pid, 1)
     elif action == "Use":
-        inv_id = _insert_id(
-            "INSERT INTO stock(product_id,location_id,quantity) "
-            "VALUES(?,NULL,0)", [pid])
-        _log_history("add", "stock", inv_id,
-                     "Resolve-use: stock 0 (product_id=%d)" % pid)
         shop_id = _insert_id(
             "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
             [pid, add_qty])
@@ -806,14 +854,38 @@ def _add_inventory_qty(pid, qty):
         _publish()
 
 
+def _ensure_on_shopping(pid):
+    """Ensure a product is on the shopping list. Used when a Use-scan consumes a
+    product that has no stock left (so it dropped out of / was never in the
+    inventory) but is still needed. Adds it at its auto-add quantity if not
+    already present, then fires the shopping-add announcement. Mirrors the
+    outcome of scanning Use on a brand-new product."""
+    on = _fetch_one_sql(
+        "SELECT 1 AS x FROM shopping_list WHERE product_id=?", [pid])
+    if on:
+        return
+    prod = _fetch_one_sql(
+        "SELECT auto_add_quantity FROM products WHERE id=?", [pid])
+    add_qty = int((prod or {}).get("auto_add_quantity") or 1)
+    shop_id = _insert_id(
+        "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
+        [pid, add_qty])
+    _log_history("auto-add", "shopping_list", shop_id,
+                 "Scan-use(empty): added to shopping qty=%d (product_id=%d)"
+                 % (add_qty, pid))
+    _announce_shopping_add(pid)
+
+
 def _remove_inventory_qty(pid, qty):
     """Subtract qty from a product's NULL-location stock, flooring at 0.
-    Reconciles the shopping list afterwards."""
+    If the product has no stock left to consume (already 0 / none — e.g. it was
+    already used up and dropped out of the inventory), put it on the shopping
+    list instead. Reconciles the shopping list afterwards."""
     before = _product_totals()
     existing = _fetch_one_sql(
         "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND location_id IS NULL", [pid])
-    if existing:
+    if existing and existing["quantity"] > 0:
         newq = existing["quantity"] - int(qty)
         if newq < 0:
             newq = 0
@@ -821,8 +893,10 @@ def _remove_inventory_qty(pid, qty):
         _log_history("adjust", "stock", existing["id"],
                      "Scan-use: stock -%d -> %d (product_id=%d)"
                      % (int(qty), newq, pid))
-    if _reconcile_shopping(before, _product_totals()):
-        _publish()
+        if _reconcile_shopping(before, _product_totals()):
+            _publish()
+    elif _total_stock(pid) == 0:
+        _ensure_on_shopping(pid)
 
 
 def _delete_scan_queue_row(rid, action, state):

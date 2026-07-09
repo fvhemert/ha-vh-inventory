@@ -14,7 +14,7 @@ multi-language (English / Nederlands out of the box).
 | Concept | Meaning |
 |---|---|
 | **Product** | A catalogue item (name, barcode, manufacturer, unit, category, store, auto-add settings). Defined once, reused everywhere. |
-| **Inventory (Stock)** | How many of a product you currently have, at a **location**. |
+| **Inventory (Stock)** | How many of a product you currently have, at a **location**. A product only appears here while it has stock — when its stock reaches **0** it drops off the inventory (the product itself and any shopping-list entry are kept). |
 | **Location** | Where stock is stored (e.g. *Pantry*, *Garage freezer*). |
 | **Category** | A grouping for products (e.g. *Coffee*, *Cleaning*). |
 | **Store** | Where you usually buy a product (e.g. *Jumbo*, *Kruidvat*). |
@@ -25,6 +25,11 @@ multi-language (English / Nederlands out of the box).
 **Auto-Add** is the link between stock and the shopping list: when a product is enabled
 for auto-add and its stock drops to/under its **threshold**, the product can be placed on
 the shopping list at its configured **quantity**.
+
+**Zero stock is never kept in the inventory.** As soon as a product's total stock reaches
+0 it is removed from the Inventory tab, so the list only ever shows what you actually have.
+The product definition and its shopping-list entry are untouched, and the product
+reappears in the inventory automatically the moment you restock it.
 
 ---
 
@@ -130,6 +135,9 @@ is stored.
   and its **Location**, which you can change inline.
 - Quick **+ / –** controls adjust quantity.
 - Stock changes feed the auto-add logic and are written to **History**.
+- When a product's quantity reaches **0** it disappears from this tab (kept on the shopping
+  list if it was auto-added). Restocking it — by scanning **Add** or using *Add product to
+  inventory* — brings it back.
 
 ### Filtering and printing by category
 
@@ -195,8 +203,9 @@ typing a barcode). When you open the Scan tab, the cursor automatically lands in
 After entering a barcode, choose an action:
 
 - **Add** — you are *putting an item in* (bought/restocked). Increases stock.
-- **Use** — you are *consuming an item*. Decreases stock and, for items that run out, can
-  add them to the shopping list.
+- **Use** — you are *consuming an item*. Decreases stock; when the last one is used the
+  product leaves the inventory. If the product is set to auto-add (or you *Use* something
+  you no longer have in stock at all), it is placed on the shopping list.
 
 Each scan creates a row in the **Scan Queue** with a **State**:
 
@@ -218,8 +227,8 @@ unresolvable barcode. Enter the product details and save:
 
 - If the original action was **Add**, the new product is created and stocked
   (quantity 1).
-- If the original action was **Use**, the product is created with stock 0 and added to the
-  shopping list (at its auto-add quantity).
+- If the original action was **Use**, the product is created and added to the shopping list
+  (at its auto-add quantity). No stock row is kept, so it does not show up in the inventory.
 
 The scan-queue row is removed once resolved. Completed scans are cleared automatically.
 
