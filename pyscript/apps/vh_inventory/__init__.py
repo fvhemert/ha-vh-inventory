@@ -189,7 +189,7 @@ def _load_inventory():
     try:
         rows = conn.execute(
             "SELECT inv.id,inv.product_id,inv.location_id,inv.quantity,"
-            "COALESCE(c.category,'') "
+            "COALESCE(c.category,''),p.barcode "
             "FROM stock inv "
             "LEFT JOIN products p ON inv.product_id=p.id "
             "LEFT JOIN categories c ON p.category_id=c.id "
@@ -197,12 +197,13 @@ def _load_inventory():
     finally:
         conn.close()
     out = []
-    for rid, pid, lid, qty, cat in rows:
+    for rid, pid, lid, qty, cat, bc in rows:
         out.append({"id": rid, "product_id": pid, "location_id": lid,
                     "quantity": qty,
                     "product": prod_id.get(pid, "") if pid else "",
                     "location": loc_id.get(lid, "") if lid else "",
-                    "category": cat or ""})
+                    "category": cat or "",
+                    "barcode": bc if bc is not None else ""})
     return out
 
 
@@ -480,6 +481,25 @@ def _announce_scan_unresolved(bc):
         pass
 
 
+def _announce_scan_added(name, qty, bc, outcome):
+    """Fire a fire-and-forget event announcing the outcome of a handheld (MQTT)
+    barcode scan so a decoupled automation can push a mobile notification.
+    `outcome` is one of:
+      'add'      - Add mode: product added/incremented in the inventory
+      'use'      - Use mode: stock decremented (product was in the inventory)
+      'shopping' - Use mode: no stock left / new product -> added to shopping list
+      'notfound' - barcode could not be resolved; manual update needed
+    name + resulting total quantity are given for add/use/shopping; only the raw
+    barcode is known for notfound. Wrapped in try/except so a notification
+    problem can never break scanning."""
+    try:
+        event.fire("vh_inventory_announce", kind="scan_added",
+                   product=name or "", quantity=int(qty or 0),
+                   barcode=bc or "", outcome=str(outcome or "notfound"))
+    except Exception:
+        pass
+
+
 def _fetch_one(table, cols, rid):
     conn = _conn()
     try:
@@ -609,10 +629,10 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
     row is inserted as 'Lookup' and an online resolution is attempted, setting
     state to 'New' (resolved) or 'Unknown' (not resolvable)."""
     if action not in ("Add", "Use"):
-        return
+        return None
     bc = ("" if barcode is None else str(barcode)).strip()
     if not bc:
-        return
+        return None
     exists = bc.isdigit() and _fetch_one_sql(
         "SELECT 1 FROM products WHERE barcode=?", [int(bc)]) is not None
     if exists:
@@ -628,15 +648,18 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
                 nm, mf = _product_name_mfr(pid)
                 _update_scanner_display(device, nm, mf, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
-        # Case 3: Use + Exist -> remove 1 from stock, never below 0.
+                return "add"
+        # Case 3: Use + Exist -> decrement stock (product in inventory) or, when
+        # there is no stock left, put it on the shopping list instead.
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
-                _remove_inventory_qty(pid, 1)
+                outcome = _remove_inventory_qty(pid, 1)
                 nm, mf = _product_name_mfr(pid)
                 _update_scanner_display(device, nm, mf, _total_stock(pid))
                 _delete_scan_queue_row(rid, action, "Exist")
-        return
+                return outcome
+        return None
     rid = _insert_id(
         "INSERT INTO scan_queue(barcode, action, state) VALUES(?, ?, 'Lookup')",
         [bc, action])
@@ -650,6 +673,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
+            return "add"
     # Case 4: Use + New -> create product (same settings) and put it on the
     # shopping list at its auto-add quantity (as if below threshold). No stock
     # row is created: a zero-stock product must not appear in the inventory.
@@ -669,10 +693,57 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
             _delete_scan_queue_row(rid, action, "New")
+            return "shopping"
     # Unresolved (Unknown): no product created; reflect the failed lookup on the
     # scanner display so the user gets feedback instead of a stale screen.
     if not info:
         _update_scanner_display(device, "Handmatig toevoegen", "Niet gevonden", "-")
+        return "notfound"
+    return None
+
+
+def _mqtt_scan_topic():
+    """Topic the handheld scanner publishes to, from input_text.vh_mqtt_topic.
+    Falls back to 'barcode/scanned' when the helper is unset/unknown so scanning
+    keeps working on a fresh install or before the helper is seeded. Bound once at
+    load time by @mqtt_trigger; the vh_inventory_mqtt_topic_changed automation
+    reloads pyscript when the helper changes so this re-subscribes."""
+    try:
+        t = str(state.get("input_text.vh_mqtt_topic")).strip()
+    except Exception:
+        t = ""
+    if not t or t in ("unknown", "unavailable", "None"):
+        return "barcode/scanned"
+    return t
+
+
+@mqtt_trigger(_mqtt_scan_topic())
+def vh_handheld_scan(payload=None, **kwargs):
+    """Handheld MQTT scanner: every barcode published to the configured topic
+    (input_text.vh_mqtt_topic, default 'barcode/scanned') is processed in the
+    mode selected on the Inventory tab (input_boolean.vh_handheld_use_mode:
+    off = Add, on = Use). Reuses vh_inventory_scan_enqueue, which resolves an
+    unknown barcode online and stores it in the product DB, then:
+      Add mode -> new product added at qty 1 / existing product +1 stock.
+      Use mode -> product in inventory has stock -1; a product with no stock
+                  (or a brand-new one) is put on the shopping list instead.
+    Afterwards a mobile notification is pushed (fully decoupled) reporting the
+    outcome (add / use / shopping / notfound)."""
+    bc = ("" if payload is None else str(payload)).strip()
+    if not bc:
+        return
+    try:
+        use_mode = str(state.get("input_boolean.vh_handheld_use_mode")) == "on"
+    except Exception:
+        use_mode = False
+    action = "Use" if use_mode else "Add"
+    outcome = vh_inventory_scan_enqueue(barcode=bc, action=action, device="handheld")
+    pid = _product_id_for_barcode(bc)
+    if pid:
+        name, _ = _product_name_mfr(pid)
+        _announce_scan_added(name, _total_stock(pid), bc, outcome or "notfound")
+    else:
+        _announce_scan_added("", 0, bc, outcome or "notfound")
 
 
 @service
@@ -833,12 +904,21 @@ def _create_product_from_scan(bc, info):
 
 
 def _add_inventory_qty(pid, qty):
-    """Add qty to a product's stock at the NULL location, merging with an
-    existing row if present. Reconciles the shopping list afterwards."""
+    """Add qty to a product's stock, merging into an existing row when possible
+    so the quantity increments in place. Prefers the NULL-location row; if there
+    is none but the product has exactly one stock row (e.g. one added manually
+    at a named location), that row is incremented; otherwise a new NULL-location
+    row is created. Reconciles the shopping list afterwards."""
     before = _product_totals()
     existing = _fetch_one_sql(
         "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND location_id IS NULL", [pid])
+    if not existing:
+        cnt = _fetch_one_sql(
+            "SELECT COUNT(*) AS n FROM stock WHERE product_id=?", [pid])
+        if cnt and int(cnt["n"]) == 1:
+            existing = _fetch_one_sql(
+                "SELECT id,quantity FROM stock WHERE product_id=?", [pid])
     if existing:
         _exec("UPDATE stock SET quantity=quantity+? WHERE id=?",
               [int(qty), existing["id"]])
@@ -877,14 +957,24 @@ def _ensure_on_shopping(pid):
 
 
 def _remove_inventory_qty(pid, qty):
-    """Subtract qty from a product's NULL-location stock, flooring at 0.
-    If the product has no stock left to consume (already 0 / none — e.g. it was
-    already used up and dropped out of the inventory), put it on the shopping
-    list instead. Reconciles the shopping list afterwards."""
+    """Subtract qty from a product's stock, flooring at 0. Prefers the
+    NULL-location row; if there is none but the product has exactly one stock
+    row (e.g. one added manually at a named location), that row is used. If the
+    product has no stock left to consume (already 0 / none — e.g. it was already
+    used up and dropped out of the inventory), put it on the shopping list
+    instead. Reconciles the shopping list afterwards.
+    Returns 'use' when stock was decremented, or 'shopping' when the product had
+    no stock and was (ensured) on the shopping list instead."""
     before = _product_totals()
     existing = _fetch_one_sql(
         "SELECT id,quantity FROM stock "
         "WHERE product_id=? AND location_id IS NULL", [pid])
+    if not existing:
+        cnt = _fetch_one_sql(
+            "SELECT COUNT(*) AS n FROM stock WHERE product_id=?", [pid])
+        if cnt and int(cnt["n"]) == 1:
+            existing = _fetch_one_sql(
+                "SELECT id,quantity FROM stock WHERE product_id=?", [pid])
     if existing and existing["quantity"] > 0:
         newq = existing["quantity"] - int(qty)
         if newq < 0:
@@ -895,8 +985,9 @@ def _remove_inventory_qty(pid, qty):
                      % (int(qty), newq, pid))
         if _reconcile_shopping(before, _product_totals()):
             _publish()
-    elif _total_stock(pid) == 0:
-        _ensure_on_shopping(pid)
+        return "use"
+    _ensure_on_shopping(pid)
+    return "shopping"
 
 
 def _delete_scan_queue_row(rid, action, state):

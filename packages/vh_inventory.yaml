@@ -59,6 +59,26 @@ input_text:
     name: VH Notify Message Shopping Add
     max: 255
     icon: mdi:message-text
+  vh_notify_msg_scan_added:
+    name: VH Notify Message Scan Added
+    max: 255
+    icon: mdi:message-text
+  vh_notify_msg_scan_notfound:
+    name: VH Notify Message Scan Not Found
+    max: 255
+    icon: mdi:message-alert
+  vh_notify_msg_scan_used:
+    name: VH Notify Message Scan Used
+    max: 255
+    icon: mdi:message-text
+  vh_notify_msg_scan_shopping:
+    name: VH Notify Message Scan Shopping
+    max: 255
+    icon: mdi:message-text
+  vh_mqtt_topic:
+    name: VH Handheld MQTT Topic
+    max: 255
+    icon: mdi:barcode-scan
 
 template:
   # Server-side Inventory filter (mirrors production barcode_voorraad_filtered).
@@ -86,7 +106,8 @@ template:
           {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
           {% set ns = namespace(count=0) %}
           {% for item in items %}
-            {% if (search == '' or search in strip_accents(item.product) | trim)
+            {% if (search == '' or search in strip_accents(item.product) | trim
+                  or search in strip_accents(item.barcode or '') | trim)
                   and (cat in ['All','','unknown','unavailable'] or (item.category or '') == cat) %}
               {% set ns.count = ns.count + 1 %}
             {% endif %}
@@ -102,7 +123,8 @@ template:
             {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
             {% set ns = namespace(filtered=[]) %}
             {% for item in items %}
-              {% if (search == '' or search in strip_accents(item.product) | trim)
+              {% if (search == '' or search in strip_accents(item.product) | trim
+                    or search in strip_accents(item.barcode or '') | trim)
                     and (cat in ['All','','unknown','unavailable'] or (item.category or '') == cat) %}
                 {% set ns.filtered = ns.filtered + [item] %}
               {% endif %}
@@ -133,7 +155,8 @@ template:
           {% else %}
             {% set ns = namespace(count=0) %}
             {% for item in items %}
-              {% if search in strip_accents(item.name) | trim %}
+              {% if search in strip_accents(item.name) | trim
+                    or search in strip_accents(item.barcode or '') | trim %}
                 {% set ns.count = ns.count + 1 %}
               {% endif %}
             {% endfor %}
@@ -151,7 +174,8 @@ template:
             {% else %}
               {% set ns = namespace(filtered=[]) %}
               {% for item in items %}
-                {% if search in strip_accents(item.name) | trim %}
+                {% if search in strip_accents(item.name) | trim
+                      or search in strip_accents(item.barcode or '') | trim %}
                   {% set ns.filtered = ns.filtered + [item] %}
                 {% endif %}
               {% endfor %}
@@ -184,7 +208,8 @@ template:
           {% else %}
             {% set ns = namespace(count=0) %}
             {% for item in items %}
-              {% if search in strip_accents(item.name) | trim %}
+              {% if search in strip_accents(item.name) | trim
+                    or search in strip_accents(item.barcode or '') | trim %}
                 {% set ns.count = ns.count + 1 %}
               {% endif %}
             {% endfor %}
@@ -202,7 +227,8 @@ template:
             {% else %}
               {% set ns = namespace(filtered=[]) %}
               {% for item in items %}
-                {% if search in strip_accents(item.name) | trim %}
+                {% if search in strip_accents(item.name) | trim
+                      or search in strip_accents(item.barcode or '') | trim %}
                   {% set ns.filtered = ns.filtered + [item] %}
                 {% endif %}
               {% endfor %}
@@ -233,6 +259,12 @@ input_boolean:
   vh_notify_shopping_add:
     name: VH Notify Shopping Add
     icon: mdi:cart-plus
+  vh_notify_scan_added:
+    name: VH Notify Scan Added
+    icon: mdi:barcode-scan
+  vh_handheld_use_mode:
+    name: VH Handheld Use Mode
+    icon: mdi:swap-horizontal
 
 input_select:
   vh_language:
@@ -261,6 +293,18 @@ input_select:
     icon: mdi:shape
     options: ["All"]
     initial: All
+  # Handheld scanner mode-button colours (Setup tab). NO `initial:` so the user's
+  # choice persists across restarts (restore_state). On a fresh install each falls
+  # back to its FIRST option, which is why the two share the same palette but with
+  # a different leading colour: Add -> Cyan, Use -> Red (the historic defaults).
+  vh_handheld_add_color:
+    name: VH Handheld Add Color
+    icon: mdi:palette
+    options: ["Cyan", "Red", "Green", "Amber", "Blue", "Purple", "Orange", "Pink", "Teal", "Grey"]
+  vh_handheld_use_color:
+    name: VH Handheld Use Color
+    icon: mdi:palette
+    options: ["Red", "Cyan", "Green", "Amber", "Blue", "Purple", "Orange", "Pink", "Teal", "Grey"]
 
 input_number:
   vh_product_auto_add_threshold:
@@ -875,6 +919,101 @@ automation:
                 title: Boodschappenlijst
                 message: "{{ message | trim }}"
 
+  - id: vh_inventory_notify_scan_added
+    alias: VH Inventory - Mobile Notification (Handheld Scan)
+    description: >-
+      Decoupled mobile push notification for handheld (MQTT) barcode scans.
+      Listens for the vh_inventory_announce event with kind == scan_added,
+      fired by the pyscript backend after a barcode published to
+      'barcode/scanned' has been processed as an Add. Sends a push to the same
+      selected mobile_app devices (input_text.vh_notify_devices). On a
+      successful add the text comes from input_text.vh_notify_msg_scan_added
+      (placeholders {product} and {qty}); when the barcode could not be resolved
+      online (ok == false) the text comes from
+      input_text.vh_notify_msg_scan_notfound (placeholder {barcode}). Runs in
+      parallel and fully independently of the inventory logic, so a slow/failed
+      notification can never affect core scan handling.
+    mode: parallel
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: vh_inventory_announce
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.kind == 'scan_added' }}"
+      - condition: state
+        entity_id: input_boolean.vh_notify_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.vh_notify_scan_added
+        state: "on"
+      - condition: template
+        value_template: "{{ (states('input_text.vh_notify_devices') | trim) != '' }}"
+    variables:
+      devices: >-
+        {{ states('input_text.vh_notify_devices').split(',')
+           | map('trim') | reject('eq', '')
+           | reject('in', ['unknown', 'unavailable']) | list }}
+      product: "{{ trigger.event.data.product | default('') | trim }}"
+      qty: "{{ trigger.event.data.quantity | default(0) }}"
+      barcode: "{{ trigger.event.data.barcode | default('') | trim }}"
+      outcome: "{{ trigger.event.data.outcome | default('notfound') }}"
+      message: >-
+        {% if outcome == 'add' %}
+        {% set t = states('input_text.vh_notify_msg_scan_added') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} toegevoegd aan de voorraad.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) | replace('{qty}', qty | string) }}
+        {% elif outcome == 'use' %}
+        {% set t = states('input_text.vh_notify_msg_scan_used') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} gebruikt. Voorraad: {qty}.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) | replace('{qty}', qty | string) }}
+        {% elif outcome == 'shopping' %}
+        {% set t = states('input_text.vh_notify_msg_scan_shopping') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} toegevoegd aan de boodschappenlijst.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) | replace('{qty}', qty | string) }}
+        {% else %}
+        {% set t = states('input_text.vh_notify_msg_scan_notfound') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = 'Streepjescode {barcode} niet gevonden. Handmatige invoer nodig.' %}
+        {% endif %}
+        {{ t | replace('{barcode}', barcode) }}
+        {% endif %}
+    actions:
+      - repeat:
+          for_each: "{{ devices }}"
+          sequence:
+            - service: "notify.{{ repeat.item }}"
+              data:
+                title: Voorraad
+                message: "{{ message | trim }}"
+
+  - id: vh_inventory_mqtt_topic_changed
+    alias: VH Inventory - Reload On MQTT Topic Change
+    description: >-
+      The handheld scanner's MQTT subscription (@mqtt_trigger in the pyscript app)
+      binds its topic at load time. When the user edits input_text.vh_mqtt_topic on
+      the Setup tab, reload the pyscript app so the trigger re-subscribes to the new
+      topic. Ignores transient unknown/unavailable states so a restart does not
+      trigger a spurious reload.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_text.vh_mqtt_topic
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state not in ['unknown', 'unavailable', '']
+             and trigger.from_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable'] }}
+    actions:
+      - service: pyscript.reload
+
   - id: vh_inventory_seed_defaults
     alias: VH Inventory - Seed Setting Defaults
     description: >-
@@ -935,3 +1074,43 @@ automation:
             {{ '{product} toegevoegd aan de boodschappen lijst.'
                if states('input_text.vh_notify_msg_shopping_add') in ['unknown', 'unavailable']
                else states('input_text.vh_notify_msg_shopping_add') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_scan_added
+        data:
+          value: >-
+            {{ '{product} toegevoegd aan de voorraad.'
+               if states('input_text.vh_notify_msg_scan_added') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_msg_scan_added') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_scan_notfound
+        data:
+          value: >-
+            {{ 'Streepjescode {barcode} niet gevonden. Handmatige invoer nodig.'
+               if states('input_text.vh_notify_msg_scan_notfound') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_msg_scan_notfound') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_scan_used
+        data:
+          value: >-
+            {{ '{product} gebruikt. Voorraad: {qty}.'
+               if states('input_text.vh_notify_msg_scan_used') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_msg_scan_used') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_scan_shopping
+        data:
+          value: >-
+            {{ '{product} toegevoegd aan de boodschappenlijst.'
+               if states('input_text.vh_notify_msg_scan_shopping') in ['unknown', 'unavailable']
+               else states('input_text.vh_notify_msg_scan_shopping') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_mqtt_topic
+        data:
+          value: >-
+            {{ 'barcode/scanned'
+               if states('input_text.vh_mqtt_topic') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_mqtt_topic') }}

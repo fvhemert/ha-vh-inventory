@@ -4,8 +4,11 @@ A home **inventory & grocery system** for Home Assistant. Track what you own, wh
 stored, how much you have, and what you need to buy — driven by barcode scanning or manual
 entry, with a fully multi-language UI (English / Nederlands), thermal-printer support, and
 optional decoupled Dutch voice announcements (Chime TTS on Sonos) and mobile push
-notifications. The inventory stays tidy: products that run out (stock 0) drop off the list
-automatically while staying on your shopping list.
+notifications. A hands-free **handheld scanner** (an ESPHome/MQTT barcode reader) can add or
+consume stock directly, switched between **Add** and **Use** mode from the Inventory tab.
+Searching any table matches on **product name or barcode**. The inventory stays tidy:
+products that run out (stock 0) drop off the list automatically while staying on your
+shopping list.
 
 ## Quick start
 

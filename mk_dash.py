@@ -461,12 +461,24 @@ inv_print_icon = icon_action_btn("mdi:printer-pos-outline",
 # ha-combo-box-item deep inside the ha-select / ha-dropdown / ha-picker-field shadows.
 inv_cat_dd = {"type": "entities",
   "card_mod": {"style": {
-    ".": ":host{width:190px!important;display:block!important;}"
+    ".": ":host{width:190px!important;display:block!important;"
+      "--md-list-item-one-line-container-height:36px!important;"
+      "--md-list-item-two-line-container-height:36px!important;"
+      "--md-list-item-top-space:0px!important;"
+      "--md-list-item-bottom-space:0px!important;"
+      "--md-list-item-leading-space:4px!important;"
+      "--md-list-item-trailing-space:4px!important;}"
       " ha-card{background:var(--vh-card-background)!important;"
       "border:var(--vh-card-border,1px solid rgba(255,255,255,0.25))!important;"
       "border-radius:var(--vh-card-radius,0px)!important;"
       "box-shadow:none!important;padding:0!important;width:190px!important;"
-      "height:36px!important;box-sizing:border-box!important;}"
+      "height:36px!important;box-sizing:border-box!important;"
+      "--md-list-item-one-line-container-height:36px!important;"
+      "--md-list-item-two-line-container-height:36px!important;"
+      "--md-list-item-top-space:0px!important;"
+      "--md-list-item-bottom-space:0px!important;"
+      "--md-list-item-leading-space:4px!important;"
+      "--md-list-item-trailing-space:4px!important;}"
       " #states{padding:0!important;overflow:hidden!important;}"
       " .type-entity{background:transparent!important;border-radius:0!important;"
       "box-shadow:none!important;}"
@@ -475,18 +487,26 @@ inv_cat_dd = {"type": "entities",
       "hui-generic-entity-row$": {
         ".": "state-badge{display:none!important;}"
           " .info{display:none!important;}"
-          " .row{padding:0!important;min-height:36px!important;gap:0!important;}"
-          " ha-select{width:190px!important;}"},
+          " .row{padding:0!important;min-height:36px!important;gap:0!important;"
+          "align-items:center!important;}"
+          " ha-select{width:190px!important;height:36px!important;}"},
         "hui-generic-entity-row ha-select$": {
+          ".": "ha-picker-field{min-height:36px!important;height:36px!important;"
+            "display:flex!important;align-items:center!important;}",
           "ha-dropdown ha-picker-field$": {
-            ".": "ha-combo-box-item{"
+            ".": ":host{min-height:36px!important;height:36px!important;"
+              "display:flex!important;align-items:center!important;}"
+              " ha-combo-box-item{"
               "--md-list-item-one-line-container-height:36px!important;"
               "--md-list-item-top-space:0px!important;"
               "--md-list-item-bottom-space:0px!important;"
-              "min-height:36px!important;"
+              "min-height:36px!important;height:36px!important;"
+              "display:flex!important;align-items:center!important;"
               "background:transparent!important;border-radius:0!important;}"
               " ha-combo-box-item::before,ha-combo-box-item::after{"
-              "display:none!important;content:none!important;}",
+              "display:none!important;content:none!important;}"
+              " ha-combo-box-item span{line-height:36px!important;height:36px!important;"
+              "display:flex!important;align-items:center!important;}",
             "ha-combo-box-item$": {
               ".": ".surface{background:transparent!important;box-shadow:none!important;"
                 "border:none!important;}"
@@ -494,19 +514,70 @@ inv_cat_dd = {"type": "entities",
                 "display:none!important;content:none!important;background:transparent!important;}"
                 " ha-ripple{display:none!important;}"
                 " md-focus-ring{display:none!important;}"
-                " md-item{padding-left:4px!important;padding-right:4px!important;}"}}}}}},
+                " md-item{padding-left:4px!important;padding-right:4px!important;"
+                "align-items:center!important;min-height:36px!important;height:36px!important;}"}}}}}},
   "entities": [{"entity": "input_select.vh_print_category", "name": ""}]}
 inv_search_row = {"type": "entities", "card_mod": SEARCH_CM,
   "entities": [{"entity": "input_text.vh_stock_search", "name": "", "icon": "mdi:magnify",
     "card_mod": icon_btn_cm("input_text.vh_stock_search"),
     "tap_action": {"action": "call-service", "service": "input_text.set_value",
       "service_data": {"entity_id": "input_text.vh_stock_search", "value": ""}}}]}
+# Handheld scanner mode toggle (Inventory tab). The handheld MQTT scanner reads
+# input_boolean.vh_handheld_use_mode (off = Add, on = Use). Rendered as two
+# conditional buttons so each carries a STATIC label — required for the i18n
+# layer to translate reliably (a single dynamically-renamed button would break
+# its per-node translation cache). Same look/feel as the Add button: the default
+# dark glass gradient background (var(--vh-card-background)); the configured
+# colour (from the Setup-tab input_selects) is applied as the BORDER + TEXT
+# accent so it still visually distinguishes Add vs Use mode.
+_MODE_COLORS = {
+  "Cyan": "#00bcd4", "Red": "#e53935", "Green": "#43a047", "Amber": "#ffc107",
+  "Blue": "#4dabf5", "Purple": "#ab47bc", "Orange": "#fb8c00", "Pink": "#ec407a",
+  "Teal": "#26a69a", "Grey": "#90a4ae"}
+_MODE_COLORS_JS = json.dumps(_MODE_COLORS)
+
+
+# Build a button-card JS template that resolves the configured colour name (from
+# `color_entity`) to a hex value (falling back to `default_hex`), then wraps it
+# with `expr` (a JS expression using the local var `c`).
+def _mode_color_tpl(color_entity, default_hex, expr):
+    base = ("var m=%s;var s=states['%s'];var c=(s&&m[s.state])?m[s.state]:'%s';"
+            % (_MODE_COLORS_JS, color_entity, default_hex))
+    return "[[[ %sreturn %s; ]]]" % (base, expr)
+
+
+def _mode_btn(label, color_entity, default_hex):
+    return {"type": "custom:button-card", "name": label, "show_icon": False,
+      "triggers_update": [color_entity, "input_boolean.vh_handheld_use_mode"],
+      "tap_action": {"action": "call-service", "service": "input_boolean.toggle",
+        "service_data": {"entity_id": "input_boolean.vh_handheld_use_mode"}},
+      "styles": {"card": [{"height": "36px"},
+        {"background": "var(--vh-card-background)"},
+        {"border-radius": "var(--vh-card-radius, 0px)"},
+        {"border": _mode_color_tpl(color_entity, default_hex, "'1px solid '+c")},
+        {"box-shadow": "none"}, {"padding": "0 16px"}, {"cursor": "pointer"},
+        {"width": "fit-content"}, {"min-width": "90px"},
+        {"display": "flex"}, {"align-items": "center"}, {"justify-content": "center"}],
+        "name": [{"color": _mode_color_tpl(color_entity, default_hex, "c")},
+          {"font-size": "13px"}, {"font-weight": "bold"}]}}
+
+# Add mode (off) -> offers "Switch to Use", coloured by vh_handheld_add_color
+# (default Cyan). Use mode (on) -> offers "Switch to Add", coloured by
+# vh_handheld_use_color (default Red). Only one condition matches at a time, so
+# visually it reads as a single button that toggles.
+_mode_add_btn = {"type": "conditional",
+  "conditions": [{"entity": "input_boolean.vh_handheld_use_mode", "state": "off"}],
+  "card": _mode_btn("Switch to Use", "input_select.vh_handheld_add_color", "#00bcd4")}
+_mode_use_btn = {"type": "conditional",
+  "conditions": [{"entity": "input_boolean.vh_handheld_use_mode", "state": "on"}],
+  "card": _mode_btn("Switch to Add", "input_select.vh_handheld_use_color", "#e53935")}
 inv_top_row = {"type": "horizontal-stack",
   "card_mod": {"style": ":host { margin-left: 16px !important; margin-top: -20px !important; }"
-    " #root { display: flex; justify-content: flex-start; gap: 8px; align-items: center; }"
+    " #root { display: flex; justify-content: flex-start; gap: 8px; align-items: center;"
+    " width: max-content !important; max-width: none !important; }"
     " #root > * { flex: 0 0 auto !important; }"},
   "cards": [add_btn("vh-add-inventory", "Add product to inventory"),
-    inv_print_icon, inv_cat_dd]}
+    _mode_add_btn, _mode_use_btn, inv_print_icon, inv_cat_dd]}
 inv_box = {"type": "vertical-stack", "card_mod": WRAP_SCROLL_CM, "cards": [inv_search_row, inv_top_row]}
 inv_tab = {"attributes": {"label": "Inventory", "icon": "mdi:clipboard-list", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [inv_box, inv_tbl, inv_add, inv_edit]}}
@@ -918,6 +989,28 @@ _notify_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
   {"entity": "input_text.vh_notify_msg_shopping_add",
    "name": "Notification message", "icon": "mdi:message-text"}]}
 
+# --- Handheld scanner (Setup tab) -------------------------------------------
+# Config for the MQTT handheld scanner: the topic it publishes to plus the
+# scan-added / not-found mobile notification controls. Notifications still flow
+# through the shared vh_notify_enabled + vh_notify_devices settings above.
+_handheld_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_text.vh_mqtt_topic",
+   "name": "MQTT topic", "icon": "mdi:barcode-scan"},
+  {"entity": "input_select.vh_handheld_add_color",
+   "name": "Color Add mode", "icon": "mdi:palette"},
+  {"entity": "input_select.vh_handheld_use_color",
+   "name": "Color Use mode", "icon": "mdi:palette"},
+  {"entity": "input_boolean.vh_notify_scan_added",
+   "name": "Notify: handheld scan added", "icon": "mdi:barcode-scan"},
+  {"entity": "input_text.vh_notify_msg_scan_added",
+   "name": "Handheld scan message", "icon": "mdi:message-text"},
+  {"entity": "input_text.vh_notify_msg_scan_used",
+   "name": "Handheld used message", "icon": "mdi:message-text"},
+  {"entity": "input_text.vh_notify_msg_scan_shopping",
+   "name": "Handheld shopping message", "icon": "mdi:message-text"},
+  {"entity": "input_text.vh_notify_msg_scan_notfound",
+   "name": "Handheld not-found message", "icon": "mdi:message-alert"}]}
+
 if MOBILE_DEVICES:
     _notify_cards = [{"type": "grid", "columns": 3, "square": False,
       "cards": [_notify_chip(_svc, _lbl) for _svc, _lbl in MOBILE_DEVICES]}]
@@ -928,9 +1021,12 @@ notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Mobile notifications"), _notify_setting_rows, _tts_msg_hint,
   _scn_section("Mobile devices for notifications")] + _notify_cards}
 
+handheld_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("Handheld scanner"), _handheld_setting_rows, _tts_msg_hint]}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",
-    "cards": [app_settings_card, tts_card, notify_card, scanner_card]}}
+    "cards": [app_settings_card, tts_card, notify_card, handheld_card, scanner_card]}}
 
 
 CART_RED = (
@@ -1064,6 +1160,55 @@ _I18N_JS = (
   "}"
 )
 
+# Fresh-render alignment fix for the Inventory print-category dropdown. The
+# card-mod styles that size/center the ha-select value do not reliably apply on
+# the first paint of a lazily-mounted tab (card-mod processes the card only on a
+# later update, e.g. selecting a value), so the "All" value renders bottom-
+# aligned in a too-tall box until interacted with. This script deep-walks the
+# shadow DOM for the input_select.vh_print_category row and forces the internal
+# ha-combo-box-item to a centered 36px line via INLINE styles, which always win
+# and do not depend on card-mod timing. Driven by its own MutationObserver plus
+# a few delayed passes so it catches the lazy tab mount.
+_DDFIX_JS = (
+  "if(!window.__vhDdFix){window.__vhDdFix=true;"
+  "function dwalk(root,test){var out=[],st=[root];while(st.length){var n=st.pop();"
+  "if(!n)continue;if(test(n))out.push(n);"
+  "if(n.shadowRoot)st.push(n.shadowRoot);"
+  "var c=n.children;if(c)for(var i=0;i<c.length;i++)st.push(c[i]);}return out;}"
+  "function P(el,k,v){if(el)el.style.setProperty(k,v,'important');}"
+  "function compact(el){if(!el)return;P(el,'min-height','36px');P(el,'height','36px');"
+  "P(el,'max-height','36px');P(el,'display','flex');P(el,'align-items','center');}"
+  "function flat(el){if(!el)return;P(el,'background','transparent');"
+  "P(el,'background-color','transparent');P(el,'border-radius','0px');P(el,'box-shadow','none');}"
+  "function fixDD(){try{"
+  "var rows=dwalk(document.body,function(el){return el.localName==='hui-input-select-entity-row'"
+  "&&el._config&&el._config.entity==='input_select.vh_print_category';});"
+  "for(var r=0;r<rows.length;r++){var row=rows[r];"
+  # kill the Rounded-theme grey rounded md-list look + the extra spacing that
+  # pushes the value down (the .type-entity row has 6px top/bottom padding that
+  # makes the value sit ~6px below the card centre), then compact the whole
+  # chain to a flat centred 36px so the value lines up with the sibling buttons.
+  "P(row,'padding','0px');P(row,'margin','0px');compact(row);flat(row);"
+  "var items=dwalk(row,function(el){return el.localName==='ha-combo-box-item';});"
+  "for(var i=0;i<items.length;i++){var it=items[i];"
+  "P(it,'--md-list-item-one-line-container-height','36px');"
+  "P(it,'--md-list-item-two-line-container-height','36px');"
+  "P(it,'--md-list-item-top-space','0px');"
+  "P(it,'--md-list-item-bottom-space','0px');"
+  "P(it,'--md-list-item-leading-space','4px');"
+  "P(it,'--md-list-item-trailing-space','4px');"
+  "compact(it);flat(it);}"
+  "var pfs=dwalk(row,function(el){return el.localName==='ha-picker-field';});"
+  "for(var p=0;p<pfs.length;p++){compact(pfs[p]);flat(pfs[p]);}"
+  "var grs=dwalk(row,function(el){return el.localName==='hui-generic-entity-row';});"
+  "for(var g=0;g<grs.length;g++){compact(grs[g]);flat(grs[g]);P(grs[g],'padding','0px');}"
+  "}"
+  "}catch(e){}}"
+  "document.addEventListener('click',fixDD,true);"
+  "setTimeout(fixDD,30);setTimeout(fixDD,120);setTimeout(fixDD,300);"
+  "setInterval(fixDD,500);}"
+)
+
 # Programmatic tab switch. A one-time capture-phase click listener: when a
 # button-card carrying a `vh_goto_tab` config key is clicked, it deep-searches
 # the shadow DOM for the tab elements (…-TAB) and clicks the one at that index.
@@ -1088,7 +1233,7 @@ _GOTAB_JS = (
   "},true);}"
 )
 focus_boot = {"type": "custom:button-card", "show_name": False, "show_icon": False,
-  "show_label": True, "label": "[[[ " + _FOCUS_JS + _CLOSE_JS + _I18N_JS + _GOTAB_JS + " return ''; ]]]",
+  "show_label": True, "label": "[[[ " + _FOCUS_JS + _CLOSE_JS + _I18N_JS + _GOTAB_JS + _DDFIX_JS + " return ''; ]]]",
   "styles": {"card": [{"height": "0px"}, {"min-height": "0"}, {"padding": "0"},
     {"margin": "0"}, {"border": "none"}, {"box-shadow": "none"},
     {"overflow": "hidden"}, {"opacity": "0"}]}}

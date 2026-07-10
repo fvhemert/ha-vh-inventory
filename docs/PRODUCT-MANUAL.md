@@ -150,6 +150,22 @@ dropdown**:
   grouped by category; if a specific category is selected it prints only that one, otherwise
   it prints every category.
 
+### Handheld scanner mode (Add / Use)
+
+Between the *Add product to inventory* button and the printer icon is a **mode toggle**
+button for the [handheld scanner](#7-scanning-workflow). It shows the scanner's current mode
+and switches it on tap:
+
+- **Scanner in ADD mode** (cyan by default) — scanned barcodes **increase** stock.
+- **Scanner in USE mode** (red by default) — scanned barcodes **consume** stock (and fall
+  back to the shopping list, resolving unknown barcodes online first).
+
+The two colours are configurable on the Setup tab (*Handheld scanner → Color Add mode /
+Color Use mode*). The mode is shared by every handheld scan until you toggle it again.
+
+> **Tip:** the search box on the Inventory, Products and other tables matches on **product
+> name *or* barcode** — type any part of either to filter.
+
 ---
 
 ## 5a. Quick add
@@ -236,6 +252,26 @@ The scan-queue row is removed once resolved. Completed scans are cleared automat
 > tab, an Unknown barcode also triggers a spoken (TTS) announcement and/or a mobile push so
 > you know a manual entry is waiting.
 
+### Handheld (MQTT) scanner
+
+Besides the on-screen Scan tab, a physical **handheld barcode scanner** (an ESPHome device
+publishing over MQTT) can update stock hands-free. Every barcode published to the configured
+topic (*Setup → Handheld scanner → MQTT topic*, default `barcode/scanned`) is processed
+using the current mode set by the [Inventory-tab toggle](#handheld-scanner-mode-add--use):
+
+- **Add mode** — behaves like a Scan-tab **Add**: known barcodes increase stock; unknown
+  barcodes are resolved online and queued to create the product.
+- **Use mode:**
+  - product **in inventory** → stock is decreased by 1;
+  - product **known but not in inventory** → added to the shopping list;
+  - product **unknown** → the barcode is looked up online, saved to the product database and
+    added to the shopping list; if it can't be resolved, it follows the manual-resolution
+    routine above.
+
+Handheld scans are decoupled from the UI and can trigger their own mobile notification
+(*Setup → Handheld scanner*), with separate editable messages for added / used / shopping /
+not-found outcomes.
+
 ---
 
 ## 8. History (audit log)
@@ -255,8 +291,8 @@ growing without bound.
 ## 9. Settings & language (Setup tab)
 
 The **Setup** tab holds application settings: the **Language** selector, a **Show ID
-columns** toggle, a **Hide header (kiosk)** toggle, and the **Spoken announcements (TTS)**
-and **Mobile notifications** sections.
+columns** toggle, a **Hide header (kiosk)** toggle, a **Handheld scanner** section, and the
+**Spoken announcements (TTS)** and **Mobile notifications** sections.
 
 ![Setup tab](images/09-setup.png)
 
@@ -329,12 +365,32 @@ Spoken announcements and mobile notifications listen to the same internal event,
 are enabled a product added to the shopping list triggers a spoken announcement **and** a
 push notification.
 
+### Handheld scanner
+
+Configuration for the physical [handheld (MQTT) scanner](#handheld-mqtt-scanner):
+
+- **MQTT topic** — the topic your ESPHome scanner publishes barcodes to (default
+  `barcode/scanned`). Editing it re-subscribes the backend automatically; no restart needed.
+- **Color Add mode / Color Use mode** — the colours of the Inventory-tab mode toggle for
+  each mode (defaults cyan for Add, red for Use). Pick from the shared colour palette.
+- **Handheld scan notification** — an optional, decoupled mobile push for handheld scans,
+  with its own on/off switch and separate editable messages for the *added*, *used*,
+  *shopping-list* and *not-found* outcomes (the not-found message supports a `{barcode}`
+  placeholder).
+
+All Setup-tab settings are backed by input helpers and **persist across Home Assistant
+restarts**.
+
 ---
 
 ## 10. Tips & behaviours
 
 - **Autofocus:** selecting the Scan tab focuses the Barcode field automatically — no extra
   click needed before scanning.
+- **Handheld scanner:** a physical MQTT scanner adds or consumes stock hands-free; toggle
+  **Add / Use** mode from the Inventory tab and set its topic/colours on the Setup tab.
+- **Search by name or barcode:** table search boxes match on either the product name or the
+  barcode (any partial match).
 - **Quick add colours:** blue = not on the shopping list, green = on it; tap to toggle.
 - **Printing:** the shopping list prints grouped per store; the inventory prints grouped per
   category (filtered to the selected category, or all). Both use the ESC/POS thermal printer.
