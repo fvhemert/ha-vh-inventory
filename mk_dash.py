@@ -124,10 +124,13 @@ CSS = {"table+": "width:100%;padding-top:0 !important;",
        "td+": "border-bottom:1px solid rgba(255,255,255,0.28);"}
 
 # Glass card frame (square corners + subtle white border) applied to every
-# flex-table card, matching the VH-Inventory look.
+# flex-table card, matching the VH-Inventory look. overflow-x:auto lets wide
+# tables (e.g. long product names on the Shopping list) scroll horizontally
+# inside the border on mobile instead of overrunning the screen edge.
 FLEX_CM = {"style": {
     ".": "ha-card { border: var(--vh-card-border,1px solid rgba(255,255,255,0.25))"
-         " !important; border-radius: var(--vh-card-radius,0px) !important; }"
+         " !important; border-radius: var(--vh-card-radius,0px) !important;"
+         " overflow-x: auto !important; }"
          " {% if is_state('input_boolean.vh_show_id_columns','off') %}"
          " #Col0, tbody td:first-child { display: none !important; }"
          " {% endif %}",
@@ -141,6 +144,11 @@ WRAP_CM = {"style": ":host { border: var(--vh-card-border,1px solid rgba(255,255
                     " !important; border-radius: var(--vh-card-radius,0px) !important;"
                     " background: var(--ha-card-background, var(--card-background-color))"
                     " !important; padding: 8px !important; }"}
+# Like WRAP_CM but lets a too-wide control row (e.g. the Inventory Add button +
+# printer + category dropdown) scroll horizontally inside the border on mobile
+# instead of overrunning the screen edge. Same pattern as the scanner matrix.
+WRAP_SCROLL_CM = {"style": WRAP_CM["style"]
+  + " :host { overflow-x: auto !important; }"}
 SEARCH_CM = {"style": "ha-card { background: transparent !important; border: none"
                       " !important; box-shadow: none !important; padding: 0px !important; }"
                       " #states { padding-top: 0px !important; }"
@@ -499,7 +507,7 @@ inv_top_row = {"type": "horizontal-stack",
     " #root > * { flex: 0 0 auto !important; }"},
   "cards": [add_btn("vh-add-inventory", "Add product to inventory"),
     inv_print_icon, inv_cat_dd]}
-inv_box = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [inv_search_row, inv_top_row]}
+inv_box = {"type": "vertical-stack", "card_mod": WRAP_SCROLL_CM, "cards": [inv_search_row, inv_top_row]}
 inv_tab = {"attributes": {"label": "Inventory", "icon": "mdi:clipboard-list", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [inv_box, inv_tbl, inv_add, inv_edit]}}
 
