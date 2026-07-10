@@ -1562,6 +1562,29 @@ def vh_inventory_shopping_toggle(product_id=None):
 
 
 @service
+def vh_inventory_stock_add_by_product(product_id=None):
+    """Add 1 to stock for a product by id (used by the Quick use 'Add item to
+    stock' grid, which lists products not currently in stock). If a stock row
+    already exists for the product, increment the first row; otherwise insert a
+    new row (location NULL) with quantity 1."""
+    if product_id in (None, ""):
+        return
+    pid = int(product_id)
+    before = _product_totals()
+    existing = _fetch_one_sql(
+        "SELECT id FROM stock WHERE product_id=? ORDER BY id LIMIT 1", [pid])
+    if existing:
+        _exec("UPDATE stock SET quantity=quantity+1 WHERE id=?", [existing["id"]])
+    else:
+        _exec("INSERT INTO stock(product_id,location_id,quantity) VALUES(?,NULL,1)",
+              [pid])
+    if _reconcile_shopping(before, _product_totals()):
+        _publish()
+    _log_history("add", "stock", None,
+                 "Added product_id=%d to stock (tap, +1)" % pid)
+
+
+@service
 def vh_inventory_tts_toggle_player(player=None):
     """Toggle a media_player entity_id in the TTS announcement target list
     (stored as a comma-separated list in input_text.vh_tts_media_players).

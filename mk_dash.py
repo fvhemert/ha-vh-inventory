@@ -649,28 +649,94 @@ GRID_CM = {"style": {
          " !important; border-radius: var(--vh-card-radius,0px) !important; }",
     "ha-card$": ".card-header { padding-bottom: 4px !important; }"}}
 
-_addlist_btn = (
-  "(function(){"
-  "var on=x.on_shopping==1;"
-  "var bg=on?'#4CAF50':'var(--primary-color)';"
-  "var nm=(x.name==null?'':x.name);"
-  "return \"<button style='cursor:pointer;padding:4px;border:none;"
-  "border-radius:var(--vh-card-radius,4px);background-color:\"+bg+\";color:#fff;"
+# Shared glass frame for the Quick-tab product buttons: bordered/transparent like
+# the Woonkamer/Kantoor nav buttons (no fill colour), sized 130x75. Per-button
+# flex/layout rules are appended after this frame.
+_QBTN_FRAME = (
+  "cursor:pointer;padding:4px;border:var(--vh-card-border);"
+  "border-radius:var(--vh-card-radius,4px);"
+  "background:linear-gradient(180deg, #3a3d44 0%, #202227 100%);"
+  "color:var(--vh-text-primary);backdrop-filter:var(--vh-backdrop-blur);"
   "font-size:0.95em;width:130px;height:75px;box-sizing:border-box;overflow:hidden;"
-  "word-break:break-word;white-space:normal;' onclick=\\\"" + HASS +
-  ".callService('pyscript','vh_inventory_shopping_toggle',{product_id:\"+x.id+\"})\\\">\""
-  "+nm+\"</button>\";"
-  "})()")
+  "word-break:break-word;white-space:normal;")
+
+def _shop_btn():
+  """Shopping-list product button (glass frame, no fill). Tapping toggles the
+  product on the shopping list via vh_inventory_shopping_toggle."""
+  return (
+    "(function(){"
+    "var nm=(x.name==null?'':x.name);"
+    "return \"<button style='" + _QBTN_FRAME + "display:flex;align-items:center;"
+    "justify-content:center;text-align:center;' onclick=\\\"" + HASS +
+    ".callService('pyscript','vh_inventory_shopping_toggle',{product_id:\"+x.id+\"})\\\">\""
+    "+nm+\"</button>\";"
+    "})()")
+
+_addlist_btn = _shop_btn()
+_removelist_btn = _shop_btn()
 
 addlist_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Add to List",
-  "entities": {"include": "sensor.vh_inventory_shopping_filtered"}, "css": GRID_CSS,
+  "entities": {"include": "sensor.vh_inventory_shopping_add_filtered"}, "css": GRID_CSS,
   "strict": True, "card_mod": GRID_CM, "_skip_flex_cm": True,
   "grid_options": {"columns": "full", "rows": "auto"},
   "columns": [{"name": "", "data": "products", "modify": _addlist_btn}]}
 
+removelist_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Remove from List",
+  "entities": {"include": "sensor.vh_inventory_shopping_remove_filtered"}, "css": GRID_CSS,
+  "strict": True, "card_mod": GRID_CM, "_skip_flex_cm": True,
+  "grid_options": {"columns": "full", "rows": "auto"},
+  "columns": [{"name": "", "data": "products", "modify": _removelist_btn}]}
+
 addlist_tab = {"attributes": {"label": "Quick add", "icon": "mdi:cart-plus", "stacked": True},
   "card": {"type": "vertical-stack", "cards": [
-    search_block("input_text.vh_shopping_search"), addlist_tbl]}}
+    search_block("input_text.vh_shopping_search"), addlist_tbl, removelist_tbl]}}
+
+
+# ----- Quick use tab (stock-button grid) -----
+# Each in-stock product (quantity > 0) is a glass button showing its name and
+# current stock. Tapping decrements stock by 1 via vh_inventory_adjust_stock;
+# when a product hits 0 it drops off the grid (the filtered sensor excludes
+# quantity 0). Own search helper (input_text.vh_quse_search) so the filter is
+# NOT shared with the Inventory search. Same grid look/feel as Quick add.
+_quse_btn = (
+  "(function(){"
+  "var nm=(x.product==null?'':x.product);"
+  "var q=(x.quantity==null?0:x.quantity);"
+  "return \"<button style='" + _QBTN_FRAME + "display:flex;flex-direction:column;"
+  "align-items:center;justify-content:space-between;gap:4px;' onclick=\\\"" + HASS +
+  ".callService('pyscript','vh_inventory_adjust_stock',{id:\"+x.id+\",delta:-1})\\\">\""
+  "+\"<span>\"+nm+\"</span>\""
+  "+\"<span style='background:#1a3a6b;border-radius:10px;"
+  "padding:1px 8px;font-weight:700;font-size:0.9em'><span class='vh-i18n'>Stock:</span> \"+q+\"</span>\""
+  "+\"</button>\";"
+  "})()")
+
+quse_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Quick Use",
+  "entities": {"include": "sensor.vh_inventory_quse_filtered"}, "css": GRID_CSS,
+  "strict": True, "card_mod": GRID_CM, "_skip_flex_cm": True,
+  "grid_options": {"columns": "full", "rows": "auto"},
+  "columns": [{"name": "", "data": "products", "modify": _quse_btn}]}
+
+# 'Add item to stock' section: glass buttons for catalog products not currently
+# in stock. Tapping adds the product to inventory (+1) via product id.
+_stock_add_btn = (
+  "(function(){"
+  "var nm=(x.name==null?'':x.name);"
+  "return \"<button style='" + _QBTN_FRAME + "display:flex;align-items:center;"
+  "justify-content:center;text-align:center;' onclick=\\\"" + HASS +
+  ".callService('pyscript','vh_inventory_stock_add_by_product',{product_id:\"+x.id+\"})\\\">\""
+  "+nm+\"</button>\";"
+  "})()")
+
+stock_add_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Add Item to Stock",
+  "entities": {"include": "sensor.vh_inventory_stock_add_filtered"}, "css": GRID_CSS,
+  "strict": True, "card_mod": GRID_CM, "_skip_flex_cm": True,
+  "grid_options": {"columns": "full", "rows": "auto"},
+  "columns": [{"name": "", "data": "products", "modify": _stock_add_btn}]}
+
+quse_tab = {"attributes": {"label": "Quick use", "icon": "mdi:cart-arrow-down", "stacked": True},
+  "card": {"type": "vertical-stack", "cards": [
+    search_block("input_text.vh_quse_search"), quse_tbl, stock_add_tbl]}}
 
 
 def simple_tbl(title, sensor, attr, col, table, pophash):
@@ -1122,8 +1188,10 @@ _CLOSE_JS = (
 # Live i18n layer. Reads input_select.vh_language, deep-walks the shadow DOM and
 # swaps chrome text (tab labels, titles, headers, popup titles, buttons, field
 # labels) by exact match against the embedded maps. Data cells, dropdown values
-# and inputs are excluded, so user-entered names are never translated. Re-applies
-# on clicks/re-renders (MutationObserver) and on language change (state event).
+# and inputs are excluded, so user-entered names are never translated — except
+# nodes explicitly marked with class "vh-i18n" (e.g. the Quick Inventory "Stock:"
+# label), which ARE translated even inside excluded cells. Re-applies on
+# clicks/re-renders (MutationObserver) and on language change (state event).
 _I18N_JS = (
   "if(!window.__vhI18n){window.__vhI18n=true;"
   "var MAP=" + json.dumps(I18N_MAP) + ";"
@@ -1144,13 +1212,14 @@ _I18N_JS = (
   "if(node.nodeValue!==val)node.nodeValue=val;}"
   "function obs(root){try{var m=new MutationObserver(schedule);"
   "m.observe(root,{childList:true,subtree:true,characterData:true});}catch(e){}}"
-  "function walk(root,lang){var c=root.childNodes;"
+  "function walk(root,lang,mo){var c=root.childNodes;"
   "for(var i=0;i<c.length;i++){var n=c[i];"
-  "if(n.nodeType===3){tx(n,lang);}"
-  "else if(n.nodeType===1){if(EXCL[n.tagName])continue;"
+  "if(n.nodeType===3){if(!mo){tx(n,lang);}"
+  "else{var pe=n.parentElement;if(pe&&pe.classList&&pe.classList.contains('vh-i18n'))tx(n,lang);}}"
+  "else if(n.nodeType===1){var ex=EXCL[n.tagName]?1:0;"
   "if(n.shadowRoot){if(!seen.has(n.shadowRoot)){seen.add(n.shadowRoot);obs(n.shadowRoot);}"
-  "walk(n.shadowRoot,lang);}walk(n,lang);}}}"
-  "function run(){walk(document.body,curLang());}"
+  "walk(n.shadowRoot,lang,mo||ex);}walk(n,lang,mo||ex);}}}"
+  "function run(){walk(document.body,curLang(),0);}"
   "function schedule(){if(tmr)clearTimeout(tmr);tmr=setTimeout(run,120);}"
   "obs(document.body);document.addEventListener('click',schedule,true);"
   "setTimeout(run,800);"
@@ -1243,6 +1312,7 @@ tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns":
   "tabs": [
     tab_boxed("Shopping", "mdi:cart", shop_tbl, None, shop_edit, add_label="Add item", extra=print_shopping_btn, nav_btn=goto_tab_btn("Add item", QUICK_ADD_TAB_INDEX)),
     addlist_tab,
+    quse_tab,
     inv_tab,
     prod_tab,
     tab_boxed("Locations", "mdi:map-marker", loc_tbl, "vh-add-location", loc_add, loc_edit, add_label="Add new location"),

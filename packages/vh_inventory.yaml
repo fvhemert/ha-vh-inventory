@@ -39,6 +39,8 @@ input_text:
     name: VH Products Search
   vh_shopping_search:
     name: VH Shopping Search
+  vh_quse_search:
+    name: VH Quick Use Search
   vh_tts_media_players:
     name: VH TTS Media Players
     max: 255
@@ -194,8 +196,10 @@ template:
       - trigger: homeassistant
         event: start
     sensor:
-      - name: VH Inventory Shopping Filtered
-        unique_id: vh_inventory_shopping_filtered
+      # Products NOT on the shopping list (Add section). Clicking a button adds
+      # the product via vh_inventory_shopping_toggle.
+      - name: VH Inventory Shopping Add Filtered
+        unique_id: vh_inventory_shopping_add_filtered
         icon: mdi:cart-plus
         state: >
           {%- macro strip_accents(text) -%}
@@ -203,18 +207,15 @@ template:
           {%- endmacro -%}
           {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
           {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
-          {% if search == '' %}
-            {{ items | length }}
-          {% else %}
-            {% set ns = namespace(count=0) %}
-            {% for item in items %}
-              {% if search in strip_accents(item.name) | trim
-                    or search in strip_accents(item.barcode or '') | trim %}
-                {% set ns.count = ns.count + 1 %}
-              {% endif %}
-            {% endfor %}
-            {{ ns.count }}
-          {% endif %}
+          {% set ns = namespace(count=0) %}
+          {% for item in items %}
+            {% if (item.on_shopping | int(0)) != 1
+                  and (search == '' or search in strip_accents(item.name) | trim
+                  or search in strip_accents(item.barcode or '') | trim) %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.count }}
         attributes:
           products: >
             {%- macro strip_accents(text) -%}
@@ -222,18 +223,153 @@ template:
             {%- endmacro -%}
             {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
             {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
-            {% if search == '' %}
-              {{ items }}
-            {% else %}
-              {% set ns = namespace(filtered=[]) %}
-              {% for item in items %}
-                {% if search in strip_accents(item.name) | trim
-                      or search in strip_accents(item.barcode or '') | trim %}
-                  {% set ns.filtered = ns.filtered + [item] %}
-                {% endif %}
-              {% endfor %}
-              {{ ns.filtered }}
+            {% set ns = namespace(filtered=[]) %}
+            {% for item in items %}
+              {% if (item.on_shopping | int(0)) != 1
+                    and (search == '' or search in strip_accents(item.name) | trim
+                    or search in strip_accents(item.barcode or '') | trim) %}
+                {% set ns.filtered = ns.filtered + [item] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+      # Products currently ON the shopping list (Remove section). Clicking a
+      # button removes the product via vh_inventory_shopping_toggle.
+      - name: VH Inventory Shopping Remove Filtered
+        unique_id: vh_inventory_shopping_remove_filtered
+        icon: mdi:cart-remove
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
+          {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+          {% set ns = namespace(count=0) %}
+          {% for item in items %}
+            {% if (item.on_shopping | int(0)) == 1
+                  and (search == '' or search in strip_accents(item.name) | trim
+                  or search in strip_accents(item.barcode or '') | trim) %}
+              {% set ns.count = ns.count + 1 %}
             {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        attributes:
+          products: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_shopping_search')) | trim %}
+            {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for item in items %}
+              {% if (item.on_shopping | int(0)) == 1
+                    and (search == '' or search in strip_accents(item.name) | trim
+                    or search in strip_accents(item.barcode or '') | trim) %}
+                {% set ns.filtered = ns.filtered + [item] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+  # Quick-use tab filter (own search helper — NOT shared with the Inventory
+  # search). Lists inventory STOCK rows (from sensor.vh_inventory_stock) with
+  # quantity > 0 so depleted items drop off the grid automatically. Accent- and
+  # case-insensitive substring match on product name / barcode. Passes through
+  # full stock dicts (product, quantity, id) so each button shows name + stock
+  # and can decrement via vh_inventory_adjust_stock. Re-renders when the search
+  # box or the stock sensor changes.
+  - trigger:
+      - trigger: state
+        entity_id:
+          - input_text.vh_quse_search
+          - sensor.vh_inventory_stock
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: VH Inventory Quse Filtered
+        unique_id: vh_inventory_quse_filtered
+        icon: mdi:cart-arrow-down
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_quse_search')) | trim %}
+          {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
+          {% set ns = namespace(count=0) %}
+          {% for item in items %}
+            {% if (item.quantity | int(0)) > 0
+                  and (search == '' or search in strip_accents(item.product) | trim
+                  or search in strip_accents(item.barcode or '') | trim) %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        attributes:
+          products: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_quse_search')) | trim %}
+            {% set items = state_attr('sensor.vh_inventory_stock','stock') or [] %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for item in items %}
+              {% if (item.quantity | int(0)) > 0
+                    and (search == '' or search in strip_accents(item.product) | trim
+                    or search in strip_accents(item.barcode or '') | trim) %}
+                {% set ns.filtered = ns.filtered + [item] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+  # Quick-use tab 'Add item to stock' section. Lists catalog products that are
+  # NOT currently in stock (no stock row — depleted items are purged by the
+  # no-zero-stock rule), so tapping a button adds the product to inventory (+1)
+  # via vh_inventory_stock_add_by_product. Shares the Quick-use search helper.
+  # Re-renders when the search box, the product catalog, or stock changes.
+  - trigger:
+      - trigger: state
+        entity_id:
+          - input_text.vh_quse_search
+          - sensor.vh_inventory_products
+          - sensor.vh_inventory_stock
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: VH Inventory Stock Add Filtered
+        unique_id: vh_inventory_stock_add_filtered
+        icon: mdi:cart-arrow-up
+        state: >
+          {%- macro strip_accents(text) -%}
+            {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+          {%- endmacro -%}
+          {% set search = strip_accents(states('input_text.vh_quse_search')) | trim %}
+          {% set instock = (state_attr('sensor.vh_inventory_stock','stock') or []) | map(attribute='product') | list %}
+          {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+          {% set ns = namespace(count=0) %}
+          {% for item in items %}
+            {% if item.name not in instock
+                  and (search == '' or search in strip_accents(item.name) | trim
+                  or search in strip_accents(item.barcode or '') | trim) %}
+              {% set ns.count = ns.count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        attributes:
+          products: >
+            {%- macro strip_accents(text) -%}
+              {{ text | string | lower | replace('é','e') | replace('è','e') | replace('ê','e') | replace('ë','e') | replace('à','a') | replace('á','a') | replace('â','a') | replace('ä','a') | replace('ö','o') | replace('ó','o') | replace('ô','o') | replace('ü','u') | replace('ú','u') | replace('û','u') | replace('ù','u') | replace('ï','i') | replace('í','i') | replace('î','i') | replace('ç','c') | replace('ñ','n') }}
+            {%- endmacro -%}
+            {% set search = strip_accents(states('input_text.vh_quse_search')) | trim %}
+            {% set instock = (state_attr('sensor.vh_inventory_stock','stock') or []) | map(attribute='product') | list %}
+            {% set items = state_attr('sensor.vh_inventory_products','products') or [] %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for item in items %}
+              {% if item.name not in instock
+                    and (search == '' or search in strip_accents(item.name) | trim
+                    or search in strip_accents(item.barcode or '') | trim) %}
+                {% set ns.filtered = ns.filtered + [item] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
 
 input_boolean:
   vh_product_auto_add_enabled:

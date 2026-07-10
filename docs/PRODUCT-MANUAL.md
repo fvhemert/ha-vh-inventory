@@ -37,8 +37,8 @@ reappears in the inventory automatically the moment you restock it.
 
 The dashboard lives at `/vh-inventory/main` and is organised as a row of tabs. Most tabs have
 an **Add** button (opens a pop-up), a data table, and per-row **Edit** / **Delete** controls.
-A **Woonkamer** button in the footer (right-aligned) jumps to the Woonkamer touchscreen
-dashboard.
+**Woonkamer** and **Kantoor** buttons in the footer (right-aligned) jump to those touchscreen
+dashboards.
 
 ![Scan tab](images/01-scan.png)
 
@@ -47,7 +47,8 @@ The tabs, left to right:
 | Tab | Purpose |
 |---|---|
 | **Shopping list** | Items to buy; print to a thermal receipt printer (grouped per store). |
-| **Quick add** | One-tap toggle of any product on/off the shopping list. |
+| **Quick Shopping** | One-tap add/remove of products on the shopping list, split into two sections. |
+| **Quick Inventory** | One-tap remove-from-stock or add-to-stock of products. |
 | **Inventory** | Current stock per product, category and location; filter and print by category. |
 | **Products** | The product catalogue. |
 | **Locations** | Storage locations. |
@@ -168,17 +169,33 @@ Color Use mode*). The mode is shared by every handheld scan until you toggle it 
 
 ---
 
-## 5a. Quick add
+## 5a. Quick Shopping
 
-The **Quick add** tab is the fastest way to build a shopping list. Every product is shown as
-a button:
+The **Quick Shopping** tab is the fastest way to build a shopping list. Every product is shown
+as a button, split into two sections:
 
-![Quick add tab](images/12-quick-add.png)
+![Quick Shopping tab](images/12-quick-add.png)
 
-- **Blue** button — the product is *not* on the shopping list.
-- **Green** button — the product is already on the shopping list.
+- **Add to Shopping List** — products that are *not* yet on the list. Tapping a product adds it.
+- **Remove from shopping list** — products already on the list. Tapping a product removes it.
 
-Tapping a button toggles the product on/off the list, and the colour updates immediately.
+Products move between the two sections automatically as you tap. Use the search box to narrow
+the buttons by name.
+
+---
+
+## 5b. Quick Inventory
+
+The **Quick Inventory** tab lets you adjust stock with a single tap, split into two sections:
+
+![Quick Inventory tab](images/15-quick-inventory.png)
+
+- **Remove item from Stock** — in-stock products (quantity > 0), each showing its current
+  **Stock:** count on a blue badge. Tapping decrements the stock by 1; when a product hits 0 it
+  drops off this section.
+- **Add item to stock** — catalogue products that are *not* currently in stock. Tapping adds the
+  product to inventory (quantity 1), after which it moves to the *Remove item from Stock* section.
+
 Use the search box to narrow the buttons by name.
 
 ---
@@ -189,8 +206,8 @@ The **Shopping list** tab holds what you need to buy.
 
 ![Shopping list tab](images/02-shopping.png)
 
-- Add items with the **Add item** button, which opens the **Quick add** tab (tap products to
-  toggle them on the list). **Auto-Add** can also populate the list automatically when stock
+- Add items with the **Add item** button, which opens the **Quick Shopping** tab (tap products
+  to add them to the list). **Auto-Add** can also populate the list automatically when stock
   runs low.
 - Adjust quantities with the **+ / –** buttons. Pressing **–** on an item at quantity 1
   removes it from the list (there are no separate edit/delete controls on this tab).
@@ -391,7 +408,8 @@ restarts**.
   **Add / Use** mode from the Inventory tab and set its topic/colours on the Setup tab.
 - **Search by name or barcode:** table search boxes match on either the product name or the
   barcode (any partial match).
-- **Quick add colours:** blue = not on the shopping list, green = on it; tap to toggle.
+- **Quick tabs:** *Quick Shopping* adds/removes products on the shopping list; *Quick Inventory*
+  removes-from or adds-to stock. Buttons share the dark glass style of the touchscreen dashboards.
 - **Printing:** the shopping list prints grouped per store; the inventory prints grouped per
   category (filtered to the selected category, or all). Both use the ESC/POS thermal printer.
 - **Pop-ups close on Save:** Add/Edit dialogs close themselves after a successful save.
