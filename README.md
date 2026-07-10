@@ -10,6 +10,17 @@ Searching any table matches on **product name or barcode**. The inventory stays 
 products that run out (stock 0) drop off the list automatically while staying on your
 shopping list.
 
+> ## ⚠️ Disclaimer
+>
+> This project is a **work in progress** and provided **as-is**. Use it **at your own risk** —
+> there is **no support, warranty, or guarantee** of any kind from my side, and I take no
+> responsibility for any issues, data loss, or damage resulting from its use.
+>
+> That said, **feedback is very welcome** — feel free to open an issue or share suggestions.
+>
+> If you reuse this solution (in whole or in part), please be so kind as to **add a reference
+> back to this repository** as the source. 🙏
+
 ## Quick start
 
 1. **Backend** — copy `pyscript/apps/vh_inventory/__init__.py` to
