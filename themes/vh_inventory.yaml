@@ -1,4 +1,4 @@
-# VH-Inventory theme (ported from production 192.168.1.213 woonkamer-ts)
+# VH-Inventory theme (ported from the woonkamer touchscreen dashboard)
 VH-Inventory:
   vh-dashboard-gradient: "#000000"
   ha-card-background: "linear-gradient(180deg, #2d2d32 0%, #1e1e22 100%)"

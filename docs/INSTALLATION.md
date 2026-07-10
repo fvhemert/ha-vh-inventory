@@ -173,7 +173,7 @@ automatically). The two resources the dashboard registers itself are `button-car
 > dashboard. The dashboard sets `kiosk_mode.hide_header` to a Jinja template bound to
 > `input_boolean.vh_kiosk_mode`, so the header hides only while the Setup-tab toggle is on.
 
-*(Optional)* The default dashboard theme is **Mushroom Square Shadow Hemert** (a custom
+*(Optional)* The default dashboard theme is a custom **Mushroom Square Shadow** variant (a
 theme based on the Mushroom theme). Install the Mushroom theme via HACS if you want the
 exact look, or remove/replace the `theme` key in `mk_dash.py`.
 
