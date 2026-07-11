@@ -53,6 +53,10 @@ input_text:
     name: VH TTS Message Scan Unresolved
     max: 255
     icon: mdi:message-alert
+  vh_tts_msg_scan_added:
+    name: VH TTS Message Scan Added
+    max: 255
+    icon: mdi:message-text
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
@@ -389,6 +393,9 @@ input_boolean:
   vh_tts_announce_scan_unresolved:
     name: VH TTS Announce Scan Unresolved
     icon: mdi:barcode-off
+  vh_tts_announce_scan_added:
+    name: VH TTS Announce Scan Added
+    icon: mdi:barcode-scan
   vh_notify_enabled:
     name: VH Notify Enabled
     icon: mdi:cellphone-message
@@ -627,6 +634,13 @@ script:
           product: "{{ states('input_select.vh_stock_product') }}"
           location: "{{ states('input_select.vh_stock_location') }}"
           quantity: "{{ states('input_number.vh_stock_quantity')|int }}"
+      - service: pyscript.vh_inventory_update_stock_product
+        data:
+          product: "{{ states('input_select.vh_stock_product') }}"
+          barcode: "{{ states('input_text.vh_product_barcode') }}"
+          manufacturer: "{{ states('input_text.vh_product_manufacturer') }}"
+          unit: "{{ states('input_text.vh_product_unit') }}"
+          category: "{{ states('input_select.vh_product_category') }}"
   vh_save_shopping:
     alias: VH Save Shopping
     sequence:
@@ -901,6 +915,28 @@ automation:
           action: "{{ scan_action }}"
           device: "{{ trigger.event.data.device }}"
 
+  - id: vh_inventory_stock_product_changed
+    alias: VH Inventory - Reload product fields on stock product change
+    description: >-
+      When the product selected in the Edit/Add Inventory popup
+      (input_select.vh_stock_product) changes, reload the product-detail fields
+      (Barcode/Manufacturer/Unit/Category) so they always reflect the chosen
+      product. This keeps the Edit Inventory popup's product-detail editing
+      consistent when the product dropdown is changed. Harmless for the Add
+      Inventory popup (those fields are not shown there).
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: input_select.vh_stock_product
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none
+             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+    actions:
+      - service: pyscript.vh_inventory_load_stock_product_fields
+
   - id: vh_inventory_print_shopping_switch
     alias: VH Inventory - Print Shopping List (scanner switch)
     description: >-
@@ -954,7 +990,9 @@ automation:
       and fully independently of the inventory logic, so slow/failed TTS can
       never affect core functionality. Handles the "added to the shopping list"
       (kind == shopping_add) and "scanned barcode could not be resolved"
-      (kind == scan_unresolved) announcements, each gated by its own toggle.
+      (kind == scan_unresolved) announcements, plus "added to the inventory via
+      the handheld scanner" (kind == scan_added, outcome == add), each gated by
+      its own toggle.
     mode: parallel
     max: 10
     triggers:
@@ -971,7 +1009,10 @@ automation:
           {{ (trigger.event.data.kind == 'shopping_add'
                 and is_state('input_boolean.vh_tts_announce_shopping_add', 'on'))
              or (trigger.event.data.kind == 'scan_unresolved'
-                and is_state('input_boolean.vh_tts_announce_scan_unresolved', 'on')) }}
+                and is_state('input_boolean.vh_tts_announce_scan_unresolved', 'on'))
+             or (trigger.event.data.kind == 'scan_added'
+                and (trigger.event.data.outcome | default('')) == 'add'
+                and is_state('input_boolean.vh_tts_announce_scan_added', 'on')) }}
     variables:
       players: >-
         {{ states('input_text.vh_tts_media_players').split(',')
@@ -986,6 +1027,13 @@ automation:
         {% set t = 'Onbekende streepjescode gescand. Handmatige invoer nodig.' %}
         {% endif %}
         {{ t }}
+        {% elif trigger.event.data.kind == 'scan_added' %}
+        {% set qty = trigger.event.data.quantity | default(0) %}
+        {% set t = states('input_text.vh_tts_msg_scan_added') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = '{product} toegevoegd aan de voorraad.' %}
+        {% endif %}
+        {{ t | replace('{product}', product) | replace('{qty}', qty | string) }}
         {% else %}
         {% set t = states('input_text.vh_tts_msg_shopping_add') %}
         {% if t in ['', 'unknown', 'unavailable'] %}
@@ -1202,6 +1250,14 @@ automation:
             {{ 'Onbekende streepjescode gescand. Handmatige invoer nodig.'
                if states('input_text.vh_tts_msg_scan_unresolved') in ['unknown', 'unavailable']
                else states('input_text.vh_tts_msg_scan_unresolved') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_msg_scan_added
+        data:
+          value: >-
+            {{ '{product} toegevoegd aan de voorraad.'
+               if states('input_text.vh_tts_msg_scan_added') in ['unknown', 'unavailable']
+               else states('input_text.vh_tts_msg_scan_added') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_notify_msg_shopping_add

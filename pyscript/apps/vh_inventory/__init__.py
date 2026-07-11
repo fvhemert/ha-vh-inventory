@@ -1245,6 +1245,50 @@ def vh_inventory_delete(table=None, id=None):
 
 
 # ---------- EDIT LOAD ----------
+def _load_stock_product_fields():
+    """Populate the Edit Inventory popup's product-detail fields
+    (barcode/manufacturer/unit/category) from the product currently selected in
+    input_select.vh_stock_product, so they always reflect the chosen product.
+    Reused both when the popup opens (vh_inventory_edit_load) and whenever the
+    product dropdown changes (vh_inventory_load_stock_product_fields service)."""
+    _, prod_by_name, _, _ = _prod_loc_maps()
+    cat_id, _, _, _ = _name_maps()
+    name = state.get("input_select.vh_stock_product")
+    pid = None
+    if name not in (None, "", NONE, "unknown", "unavailable"):
+        pid = prod_by_name.get(name)
+    if not pid:
+        input_text.set_value(entity_id="input_text.vh_product_barcode", value="")
+        input_text.set_value(entity_id="input_text.vh_product_manufacturer", value="")
+        input_text.set_value(entity_id="input_text.vh_product_unit", value="")
+        try:
+            input_select.select_option(entity_id="input_select.vh_product_category", option=NONE)
+        except Exception:
+            pass
+        return
+    row = _fetch_one("products", ["id", "barcode", "manufacturer", "unit", "category_id"], pid)
+    if not row:
+        return
+    input_text.set_value(entity_id="input_text.vh_product_barcode",
+                         value="" if row["barcode"] is None else str(row["barcode"]))
+    input_text.set_value(entity_id="input_text.vh_product_manufacturer", value=row["manufacturer"] or "")
+    input_text.set_value(entity_id="input_text.vh_product_unit", value=row["unit"] or "")
+    cat_name = cat_id.get(row["category_id"], NONE) if row["category_id"] else NONE
+    try:
+        input_select.select_option(entity_id="input_select.vh_product_category", option=cat_name)
+    except Exception:
+        pass
+
+
+@service
+def vh_inventory_load_stock_product_fields():
+    """Service wrapper around _load_stock_product_fields, called by the
+    'reload product fields on stock product change' automation so the Edit
+    Inventory popup's Barcode/Manufacturer/Unit/Category always match the
+    selected product."""
+    _load_stock_product_fields()
+
+
 @service
 def vh_inventory_edit_load(table=None, id=None):
     """Load a row's values into the matching VH input helpers for editing."""
@@ -1303,6 +1347,7 @@ def vh_inventory_edit_load(table=None, id=None):
             input_select.select_option(entity_id="input_select.vh_stock_location", option=lname)
         except Exception:
             pass
+        _load_stock_product_fields()
     elif table == "shopping_list":
         prod_id, _, _, _ = _prod_loc_maps()
         row = _fetch_one("shopping_list", ["id", "product_id", "quantity"], rid)
@@ -1370,6 +1415,38 @@ def vh_inventory_set_product_field(id=None, field=None, value=None):
     else:
         return
     _log_history("update", "products", rid, "Set %s = %s" % (field, value))
+
+
+@service
+def vh_inventory_update_stock_product(product=None, barcode=None,
+                                      manufacturer=None, unit=None, category=None):
+    """Update ONLY barcode/manufacturer/unit/category on the product currently
+    linked to the stock row being edited (product identified by NAME from the
+    Edit Inventory popup's product dropdown). Name/description/auto-add settings
+    are left untouched. Used by the Edit Inventory popup's product-detail fields.
+    An unparseable barcode is left as-is rather than wiping the stored value."""
+    if product in (None, "", NONE):
+        return
+    _, prod_by_name, _, _ = _prod_loc_maps()
+    pid = prod_by_name.get(product)
+    if not pid:
+        return
+    _, cat_by_name, _, _ = _name_maps()
+    sets = ["manufacturer=?", "unit=?", "category_id=?"]
+    params = [manufacturer or None, unit or None, _resolve(category, cat_by_name)]
+    if barcode in (None, ""):
+        sets.append("barcode=?")
+        params.append(None)
+    else:
+        try:
+            bc = int(barcode)
+            sets.append("barcode=?")
+            params.append(bc)
+        except Exception:
+            pass
+    params.append(pid)
+    _exec("UPDATE products SET " + ", ".join(sets) + " WHERE id=?", params)
+    _log_history("update", "products", pid, "Updated details from Edit Inventory")
 
 
 @service

@@ -97,6 +97,8 @@
   "Announce: scan needs manual update": "Announce: scan needs manual update",
   "Shopping-add message": "Shopping-add message",
   "Scan-unresolved message": "Scan-unresolved message",
+  "Announce (TTS): handheld add": "Announce (TTS): handheld add",
+  "Handheld TTS message": "Handheld TTS message",
   "Tip: use {product} for the product name.": "Tip: use {product} for the product name.",
   "Mobile notifications": "Mobile notifications",
   "Mobile devices for notifications": "Mobile devices for notifications",

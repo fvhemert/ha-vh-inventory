@@ -441,8 +441,17 @@ inv_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Stock",
     + actions_cols("stock", "#vh-edit-inventory", "stock")}
 inv_rows = ["input_select.vh_stock_product", "input_select.vh_stock_location",
   "input_number.vh_stock_quantity"]
+# Edit Inventory also exposes the linked product's details (Barcode, Manufacturer,
+# Unit, Category) via the shared vh_product_* helpers. These are loaded on open
+# and kept in sync with the product dropdown by the
+# vh_inventory_stock_product_changed automation; Save writes them back to the
+# product via pyscript.vh_inventory_update_stock_product. (Add Inventory keeps the
+# stock-only rows, since the product must already exist.)
+inv_edit_rows = inv_rows + [
+  "input_text.vh_product_barcode", "input_text.vh_product_manufacturer",
+  "input_text.vh_product_unit", "input_select.vh_product_category"]
 inv_add = popup("vh-add-inventory", "Add Inventory", "mdi:clipboard-list", inv_rows, "script.vh_save_stock", "script.vh_reset_stock_add")
-inv_edit = popup("vh-edit-inventory", "Edit Inventory", "mdi:clipboard-list", inv_rows, "script.vh_update_stock")
+inv_edit = popup("vh-edit-inventory", "Edit Inventory", "mdi:clipboard-list", inv_edit_rows, "script.vh_update_stock")
 # Accent-insensitive filter (server-side via sensor.vh_inventory_stock_filtered),
 # mirroring the production barcode dashboard. The clickable magnify icon clears
 # the search; strip_accents matching lives in vh_inventory.yaml. The Inventory tab
@@ -1075,7 +1084,11 @@ _handheld_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
   {"entity": "input_text.vh_notify_msg_scan_shopping",
    "name": "Handheld shopping message", "icon": "mdi:message-text"},
   {"entity": "input_text.vh_notify_msg_scan_notfound",
-   "name": "Handheld not-found message", "icon": "mdi:message-alert"}]}
+   "name": "Handheld not-found message", "icon": "mdi:message-alert"},
+  {"entity": "input_boolean.vh_tts_announce_scan_added",
+   "name": "Announce (TTS): handheld add", "icon": "mdi:bullhorn"},
+  {"entity": "input_text.vh_tts_msg_scan_added",
+   "name": "Handheld TTS message", "icon": "mdi:message-text"}]}
 
 if MOBILE_DEVICES:
     _notify_cards = [{"type": "grid", "columns": 3, "square": False,

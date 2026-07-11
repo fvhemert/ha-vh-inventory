@@ -97,6 +97,8 @@
   "Announce: scan needs manual update": "Aankondiging: scan handmatig bijwerken",
   "Shopping-add message": "Bericht bij toevoegen aan lijst",
   "Scan-unresolved message": "Bericht bij onbekende scan",
+  "Announce (TTS): handheld add": "Aankondiging (TTS): handscanner toevoegen",
+  "Handheld TTS message": "Handscanner TTS-tekst",
   "Tip: use {product} for the product name.": "Tip: gebruik {product} voor de productnaam.",
   "Mobile notifications": "Mobiele meldingen",
   "Mobile devices for notifications": "Mobiele apparaten voor meldingen",
