@@ -847,8 +847,7 @@ SCANNER_SETTINGS = [
   ("Display", [
     ("Color Add mode", "select", "color_add_mode"),
     ("Color Use mode", "select", "color_use_mode"),
-    ("Display power", "switch", "display"),
-    ("Display backlight", "light", "display_backlight"),
+    ("Display on/off", "light", "display_backlight", {"es1": "switch.scanner_01_display"}),
     ("Display Idle brightness", "number", "display_idle_brightness"),
     ("Display On brightness", "number", "display_on_brightness"),
     ("Idle Timer", "number", "idle_timer")]),
@@ -944,23 +943,28 @@ def _scn_empty():
 SCANNER01_HAS = {
   "idle_timer", "last_scan", "barcode_read", "product_name", "product_description",
   "stock", "scanning_enabled", "buzzer_volume", "collimation", "collimation_flashing",
-  "scanning_light", "same_code_delay", "startup_mode", "scanner_mode", "state", "display"}
+  "scanning_light", "same_code_delay", "startup_mode", "scanner_mode", "state"}
 
-# Entity suffixes the barcode-01 / barcode-02 devices do NOT expose (they use a
-# light-based backlight rather than a switch.*_display). Rows whose suffix is in
-# this set render empty Barcode-01/02 cells.
-BARCODE_LACKS = {"display"}
+# Entity suffixes the barcode-01 / barcode-02 devices do NOT expose. Rows whose
+# suffix is in this set render empty Barcode-01/02 cells.
+BARCODE_LACKS = set()
 
-def _scn_row(label, dom, suffix, sep=True, b1=True, b2=True, s1=None):
+def _scn_row(label, dom, suffix, sep=True, b1=True, b2=True, s1=None,
+             e1=None, e2=None, es1=None):
     # Build the Barcode-01 / Barcode-02 / Scanner-01 cells. A device that lacks the
-    # entity (b1/b2/s1 False) gets a blank placeholder cell.
+    # entity (b1/b2/s1 False) gets a blank placeholder cell. e1/e2/es1 override the
+    # default "<dom>.<device>_<suffix>" entity for a column (e.g. when devices expose
+    # the same setting through different domains).
     if s1 is None:
-        s1 = suffix in SCANNER01_HAS
+        s1 = suffix in SCANNER01_HAS or es1 is not None
+    c1 = e1 or ("%s.barcode_01_%s" % (dom, suffix))
+    c2 = e2 or ("%s.barcode_02_%s" % (dom, suffix))
+    cs1 = es1 or ("%s.scanner_01_%s" % (dom, suffix))
     return {"type": "grid", "columns": 4, "square": False, "card_mod": _row_cm(sep), "cards": [
       _scn_label(label),
-      _scn_cell("%s.barcode_01_%s" % (dom, suffix)) if b1 else _scn_empty(),
-      _scn_cell("%s.barcode_02_%s" % (dom, suffix)) if b2 else _scn_empty(),
-      _scn_cell("%s.scanner_01_%s" % (dom, suffix)) if s1 else _scn_empty()]}
+      _scn_cell(c1) if b1 else _scn_empty(),
+      _scn_cell(c2) if b2 else _scn_empty(),
+      _scn_cell(cs1) if s1 else _scn_empty()]}
 
 def _scn_section(title, min_width=None):
     card = [{"background": "var(--vh-table-header-color, #4dabf5)"}, {"border": "none"},
@@ -984,11 +988,13 @@ _scn_cards = [{"type": "grid", "columns": 4, "square": False, "card_mod": _row_c
 _scn_cards.append(_scn_row("State", "sensor", "state", sep=True, b1=False, b2=False))
 for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
     _scn_cards.append(_scn_section(_title, min_width=_SCN_MINW))
-    for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
+    for _ri, _row in enumerate(_rows):
+        _lbl, _dom, _suf = _row[0], _row[1], _row[2]
+        _kw = _row[3] if len(_row) > 3 else {}
         _last_in_section = _ri == len(_rows) - 1
         _has_bc = _suf not in BARCODE_LACKS
         _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last_in_section,
-                                   b1=_has_bc, b2=_has_bc))
+                                   b1=_has_bc, b2=_has_bc, **_kw))
 # Scanner matrix is wider than a phone; let the box scroll horizontally on overflow
 # (desktop: 1fr expands and it fits, so no scrollbar appears).
 SCN_WRAP_CM = {"style": WRAP_CM["style"]
