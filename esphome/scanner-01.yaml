@@ -21,6 +21,10 @@
 #               mirroring barcode-01/02 so HA maps Toevoegen->Add / Gebruiken->Use via
 #               select.scanner_01_scanner_mode. Left LED = Add, right LED = Use, both off = Off.
 #               NOTE: requires 'scanner-01' added to the vh_inventory_barcode_scanned HA automation.
+#     1.09    Added product_name/product_description/product_stock text entities (matching barcode-01/02)
+#               so the VH Inventory backend can push the resolved product to the OLED. The "result"
+#               screen now shows the product name (scrolling) and "Voorraad: <qty>" instead of staying
+#               on "Zoeken".
 #########################################################################################################################
 # NOTE: This device differs from barcode-01 / barcode-02 in that it has a small monochrome OLED (no touchscreen),
 #       two hardware buttons with LEDs, and a built-in thermal printer. Add/Use mode and the LVGL page system used
@@ -30,7 +34,7 @@ substitutions:
   name: "scanner-01"
   friendly_name: "SCANNER-01"
   project_name: 'Boodschappen scanner'
-  project_version: '1.08'
+  project_version: '1.09'
   # Scanner mode labels (must match barcode-01/02 so HA maps them to Add/Use)
   txt_mode_add: 'Toevoegen'
   txt_mode_use: 'Gebruiken'
@@ -203,6 +207,62 @@ text_sensor:
     id: last_result
     name: Last Result
     internal: true
+# Product details pushed from Home Assistant after a scan is resolved by the VH Inventory backend.
+# The pyscript backend writes text.scanner_01_product_name / _product_description / _stock; these
+# drive the OLED "result" screen. Names/ids match barcode-01/02 so the same backend logic applies.
+text:
+  - platform: template                         # Product name sent from Home Assistant after lookup of barcode
+    name: "Product Name"
+    id: product_name
+    icon: mdi:label
+    mode: text
+    min_length: 0
+    max_length: 64
+    initial_value: ""
+    restore_value: false
+    optimistic: true                           # Keep HA and device in sync quickly
+    on_value:                                  # A resolved product name means the lookup finished -> show the result screen
+      then:
+        - logger.log:
+            level: INFO
+            format: "New Product Name received from HA: %s"
+            args: [ 'x.c_str()' ]
+        - text_sensor.template.publish:
+            id: screen_mode
+            state: "result"
+        - script.execute: standby_timer        # Return to standby after a while
+  - platform: template                         # Product description (manufacturer) sent from Home Assistant
+    name: "Product Description"
+    id: product_description
+    icon: mdi:label
+    mode: text
+    min_length: 0
+    max_length: 64
+    initial_value: ""
+    restore_value: false
+    optimistic: true
+    on_value:
+      then:
+        - logger.log:
+            level: INFO
+            format: "New Product Description received from HA: %s"
+            args: [ 'x.c_str()' ]
+  - platform: template                         # Resulting stock quantity sent from Home Assistant
+    name: "Stock"
+    id: product_stock
+    icon: mdi:label
+    mode: text
+    min_length: 0
+    max_length: 64
+    initial_value: "-"
+    restore_value: false
+    optimistic: true
+    on_value:
+      then:
+        - logger.log:
+            level: INFO
+            format: "New Product stock received from HA: %s"
+            args: [ 'x.c_str()' ]
 #########################################################################################################################
 # Home Assistant events
 #########################################################################################################################
@@ -325,12 +385,13 @@ display:
         it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
       }
       else if(id(screen_mode).state == "result") {
-        std::string printout=id(last_result).state.c_str();
+        std::string printout=id(product_name).state.c_str();
         int clength = printout.length();
         id(scroll_length) = clength * 15;
-        it.print(id(scroll_x), 5, id(arial_font_18), id(last_barcode).state.c_str());
+        it.print(id(scroll_x), 5, id(arial_font_18), printout.c_str());
         // multiplication factor (in this case 10) to be determined with trial and error based on your font width
-        it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
+        std::string line2 = "Voorraad: " + std::string(id(product_stock).state.c_str());
+        it.print(0, 34, id(arial_font_24), line2.c_str());
       }
        else {
         it.print(0, 4, id(arial_font_18), "Unknown Error");
