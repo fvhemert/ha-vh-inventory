@@ -37,7 +37,7 @@ substitutions:
   txt_barcode: 'Barcode'
   txt_stock: 'Voorraad'
   txt_product_name: 'Produkt naam'
-  txt_product_description: 'Omschrijving'
+  txt_product_description: 'Fabrikant'
   txt_mode_add: 'Toevoegen'
   txt_mode_use: 'Gebruiken'
   txt_mode_off: 'Off'
