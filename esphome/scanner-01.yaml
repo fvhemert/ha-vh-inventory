@@ -171,7 +171,7 @@ binary_sensor:
       then:
         - if:                                  # If currently in Add mode switch to Use, otherwise (Use/Off) switch to Add
             condition:
-              lambda: 'return id(scanner_mode).state == "${txt_mode_add}";'
+              lambda: 'return id(scanner_mode).current_option() == "${txt_mode_add}";'
             then:
               - select.set:
                   id: scanner_mode
@@ -362,7 +362,7 @@ display:
       }
       else if(id(screen_mode).state == "standby") {
         it.print(0, 0, id(icons_32), "\U0000f85c");
-        it.print(40, 5, id(arial_font_24), id(scanner_mode).state.c_str());
+        it.print(40, 5, id(arial_font_24), id(scanner_mode).current_option().c_str());
 
         std::string printout="Scan een product";
         int clength = printout.length();
