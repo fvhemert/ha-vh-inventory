@@ -132,8 +132,9 @@ is stored.
 
 - Press **Add product to inventory** to record stock: pick a product, a location, and a
   quantity.
-- Each row shows the product's **Category** (read-only here — set it on the Products tab)
-  and its **Location**, which you can change inline.
+- Each row shows the product's **Category** and its **Location**, both of which you can
+  change inline via a dropdown. (Category is a property of the product, so changing it here
+  updates that product everywhere it appears.)
 - Quick **+ / –** controls adjust quantity.
 - Stock changes feed the auto-add logic and are written to **History**.
 - When a product's quantity reaches **0** it disappears from this tab (kept on the shopping
@@ -285,9 +286,9 @@ using the current mode set by the [Inventory-tab toggle](#handheld-scanner-mode-
     added to the shopping list; if it can't be resolved, it follows the manual-resolution
     routine above.
 
-Handheld scans are decoupled from the UI and can trigger their own mobile notification
-(*Setup → Handheld scanner*), with separate editable messages for added / used / shopping /
-not-found outcomes.
+Scan outcomes can trigger the shared, decoupled **spoken announcements (TTS)** and **mobile
+notifications** configured on the Setup tab (e.g. the *Used from inventory* and *Unresolved
+scan* announcements) — these fire for every scanner, not just the handheld.
 
 ---
 
@@ -358,11 +359,13 @@ of the core inventory logic**, so a slow or offline speaker never blocks or dela
 - **Per-announcement switches** — turn each announcement on/off individually:
   - *Product added to shopping list* — says "&lt;product&gt; toegevoegd aan de
     boodschappenlijst."
+  - *Used from inventory* — when a product is consumed (via **any** scanner) and stock
+    remains, says "&lt;product&gt; verbruikt, nog &lt;qty&gt; op voorraad."
   - *Unresolved scan* — announced when a scanned barcode can't be resolved and needs
     manual entry.
 - **Editable message text** — each announcement's wording is editable in its own input
-  field. Use the `{product}` placeholder in the shopping-list message to insert the
-  product name.
+  field. Use the `{product}` placeholder to insert the product name, and `{qty}` (in the
+  *Used from inventory* message) to insert the remaining stock.
 
 ### Mobile notifications
 
@@ -390,10 +393,10 @@ Configuration for the physical [handheld (MQTT) scanner](#handheld-mqtt-scanner)
   `barcode/scanned`). Editing it re-subscribes the backend automatically; no restart needed.
 - **Color Add mode / Color Use mode** — the colours of the Inventory-tab mode toggle for
   each mode (defaults cyan for Add, red for Use). Pick from the shared colour palette.
-- **Handheld scan notification** — an optional, decoupled mobile push for handheld scans,
-  with its own on/off switch and separate editable messages for the *added*, *used*,
-  *shopping-list* and *not-found* outcomes (the not-found message supports a `{barcode}`
-  placeholder).
+
+Handheld scan outcomes are announced through the shared, scanner-agnostic *Spoken
+announcements (TTS)* and *Mobile notifications* sections above — there are no longer any
+handheld-specific notification messages.
 
 All Setup-tab settings are backed by input helpers and **persist across Home Assistant
 restarts**.

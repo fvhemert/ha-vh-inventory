@@ -433,7 +433,7 @@ def popup(hsh, title, icon, rows, save_svc, reset_svc=None):
 inv_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Stock",
   "entities": {"include": "sensor.vh_inventory_stock_filtered"}, "css": CSS,
   "columns": [id_col("stock"), {"name": "Product", "data": "stock", "modify": fld("product")},
-    {"name": "Category", "data": "stock", "modify": fld("category"), "_w": "140px"},
+    {"name": "Category", "data": "stock", "modify": inline_select("categories", "category", svc="vh_inventory_set_stock_field"), "_w": "160px"},
     {"name": "Location", "data": "stock", "modify": inline_select("locations", "location", svc="vh_inventory_set_stock_field"), "_w": "160px"},
     {"name": "Quantity", "data": "stock", "align": "center", "modify": fld("quantity"), "_w": "80px"},
     {"name": "-", "data": "stock", "align": "center", "modify": adjust_icon("mdi:minus", -1), "_w": "40px"},
@@ -984,6 +984,10 @@ _tts_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
    "name": "Announce: scan needs manual update", "icon": "mdi:barcode-off"},
   {"entity": "input_text.vh_tts_msg_scan_unresolved",
    "name": "Scan-unresolved message", "icon": "mdi:message-alert"},
+  {"entity": "input_boolean.vh_tts_announce_scan_used",
+   "name": "Announce: used from inventory", "icon": "mdi:cart-arrow-down"},
+  {"entity": "input_text.vh_tts_msg_scan_used",
+   "name": "Scan-used message", "icon": "mdi:message-text"},
   {"entity": "input_number.vh_tts_volume", "name": "Announcement volume",
    "icon": "mdi:volume-high"}]}
 
@@ -1066,29 +1070,15 @@ _notify_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
 
 # --- Handheld scanner (Setup tab) -------------------------------------------
 # Config for the MQTT handheld scanner: the topic it publishes to plus the
-# scan-added / not-found mobile notification controls. Notifications still flow
-# through the shared vh_notify_enabled + vh_notify_devices settings above.
+# Add/Use mode-button colours. Notifications and TTS for scans are handled by
+# the scanner-agnostic controls in the TTS / Mobile notification cards above.
 _handheld_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
   {"entity": "input_text.vh_mqtt_topic",
    "name": "MQTT topic", "icon": "mdi:barcode-scan"},
   {"entity": "input_select.vh_handheld_add_color",
    "name": "Color Add mode", "icon": "mdi:palette"},
   {"entity": "input_select.vh_handheld_use_color",
-   "name": "Color Use mode", "icon": "mdi:palette"},
-  {"entity": "input_boolean.vh_notify_scan_added",
-   "name": "Notify: handheld scan added", "icon": "mdi:barcode-scan"},
-  {"entity": "input_text.vh_notify_msg_scan_added",
-   "name": "Handheld scan message", "icon": "mdi:message-text"},
-  {"entity": "input_text.vh_notify_msg_scan_used",
-   "name": "Handheld used message", "icon": "mdi:message-text"},
-  {"entity": "input_text.vh_notify_msg_scan_shopping",
-   "name": "Handheld shopping message", "icon": "mdi:message-text"},
-  {"entity": "input_text.vh_notify_msg_scan_notfound",
-   "name": "Handheld not-found message", "icon": "mdi:message-alert"},
-  {"entity": "input_boolean.vh_tts_announce_scan_added",
-   "name": "Announce (TTS): handheld add", "icon": "mdi:bullhorn"},
-  {"entity": "input_text.vh_tts_msg_scan_added",
-   "name": "Handheld TTS message", "icon": "mdi:message-text"}]}
+   "name": "Color Use mode", "icon": "mdi:palette"}]}
 
 if MOBILE_DEVICES:
     _notify_cards = [{"type": "grid", "columns": 3, "square": False,
@@ -1101,7 +1091,7 @@ notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Mobile devices for notifications")] + _notify_cards}
 
 handheld_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
-  _scn_section("Handheld scanner"), _handheld_setting_rows, _tts_msg_hint]}
+  _scn_section("Handheld scanner"), _handheld_setting_rows]}
 
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",

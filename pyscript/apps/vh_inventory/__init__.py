@@ -481,21 +481,19 @@ def _announce_scan_unresolved(bc):
         pass
 
 
-def _announce_scan_added(name, qty, bc, outcome):
-    """Fire a fire-and-forget event announcing the outcome of a handheld (MQTT)
-    barcode scan so a decoupled automation can push a mobile notification.
-    `outcome` is one of:
-      'add'      - Add mode: product added/incremented in the inventory
-      'use'      - Use mode: stock decremented (product was in the inventory)
-      'shopping' - Use mode: no stock left / new product -> added to shopping list
-      'notfound' - barcode could not be resolved; manual update needed
-    name + resulting total quantity are given for add/use/shopping; only the raw
-    barcode is known for notfound. Wrapped in try/except so a notification
-    problem can never break scanning."""
+def _announce_scan_used(pid, qty):
+    """Fire a fire-and-forget event announcing that a product was consumed
+    (Use scan) from the inventory while stock remains (qty >= 1). Fired from the
+    central vh_inventory_scan_enqueue Use path, so it works for EVERY scanner
+    (handheld/MQTT, ESPHome, on-screen scan tab). A separate HA automation
+    (vh_inventory_announce, kind == scan_used) does the slow chime-tts work, so
+    TTS runs fully independently of the inventory logic. Wrapped in try/except so
+    a notification problem can never break scanning."""
     try:
-        event.fire("vh_inventory_announce", kind="scan_added",
-                   product=name or "", quantity=int(qty or 0),
-                   barcode=bc or "", outcome=str(outcome or "notfound"))
+        name, _ = _product_name_mfr(pid)
+        if name:
+            event.fire("vh_inventory_announce", kind="scan_used",
+                       product=name, quantity=int(qty or 0))
     except Exception:
         pass
 
@@ -656,7 +654,10 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             if pid:
                 outcome = _remove_inventory_qty(pid, 1)
                 nm, mf = _product_name_mfr(pid)
-                _update_scanner_display(device, nm, mf, _total_stock(pid))
+                total = _total_stock(pid)
+                _update_scanner_display(device, nm, mf, total)
+                if outcome == "use" and total >= 1:
+                    _announce_scan_used(pid, total)
                 _delete_scan_queue_row(rid, action, "Exist")
                 return outcome
         return None
@@ -727,8 +728,9 @@ def vh_handheld_scan(payload=None, **kwargs):
       Add mode -> new product added at qty 1 / existing product +1 stock.
       Use mode -> product in inventory has stock -1; a product with no stock
                   (or a brand-new one) is put on the shopping list instead.
-    Afterwards a mobile notification is pushed (fully decoupled) reporting the
-    outcome (add / use / shopping / notfound)."""
+    The scanner-agnostic "verbruikt" TTS announcement (kind == scan_used) is
+    fired from vh_inventory_scan_enqueue itself, so no extra call is needed
+    here."""
     bc = ("" if payload is None else str(payload)).strip()
     if not bc:
         return
@@ -737,13 +739,7 @@ def vh_handheld_scan(payload=None, **kwargs):
     except Exception:
         use_mode = False
     action = "Use" if use_mode else "Add"
-    outcome = vh_inventory_scan_enqueue(barcode=bc, action=action, device="handheld")
-    pid = _product_id_for_barcode(bc)
-    if pid:
-        name, _ = _product_name_mfr(pid)
-        _announce_scan_added(name, _total_stock(pid), bc, outcome or "notfound")
-    else:
-        _announce_scan_added("", 0, bc, outcome or "notfound")
+    vh_inventory_scan_enqueue(barcode=bc, action=action, device="handheld")
 
 
 @service
@@ -1452,12 +1448,23 @@ def vh_inventory_update_stock_product(product=None, barcode=None,
 @service
 def vh_inventory_set_stock_field(id=None, field=None, value=None):
     """Inline-edit a single inventory field from the Inventory table.
-    Allowed fields: location. Changing location to one the product already has
-    stock at merges the quantities into the existing row (no duplicates)."""
+    Allowed fields: location, category. 'category' is stored on the product the
+    stock row links to (so it stays consistent with the Products table).
+    Changing location to one the product already has stock at merges the
+    quantities into the existing row (no duplicates)."""
     if id in (None, "") or field is None:
         return
     rid = int(id)
-    if field == "location":
+    if field == "category":
+        row = _fetch_one_sql("SELECT product_id FROM stock WHERE id=?", [rid])
+        if not row or row["product_id"] is None:
+            return
+        _, cat_by_name, _, _ = _name_maps()
+        _exec("UPDATE products SET category_id=? WHERE id=?",
+              [_resolve(value, cat_by_name), row["product_id"]])
+        _log_history("update", "products", row["product_id"],
+                     "Set category = %s (via inventory)" % (value or NONE))
+    elif field == "location":
         _, _, _, loc_by_name = _prod_loc_maps()
         lid = _resolve(value, loc_by_name)
         row = _fetch_one_sql(
