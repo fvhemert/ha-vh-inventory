@@ -839,10 +839,10 @@ lang_card = {"type": "entities", "entities": [
   {"entity": "input_boolean.vh_kiosk_mode", "name": "Hide header (kiosk)", "icon": "mdi:fullscreen"}]}
 
 # --- Scanner settings matrix (Setup tab) ------------------------------------
-# A 3-column grid (Setting name | Scanner-01 | Scanner-02) built from the data
-# table below. Each row is a horizontal-stack of a text label + one flat
-# entities cell per scanner; sections get a coloured header. Entities are
-# barcode-01 / barcode-02 ESPHome controls.
+# A 4-column grid (Setting name | Barcode-01 | Barcode-02 | Scanner-01) built from
+# the data table below. Each row is a grid of a text label + one flat entities cell
+# per device; sections get a coloured header. Entities are barcode-01 / barcode-02 /
+# scanner-01 ESPHome controls; a device that lacks a given entity gets an empty cell.
 SCANNER_SETTINGS = [
   ("Display", [
     ("Color Add mode", "select", "color_add_mode"),
@@ -880,22 +880,22 @@ FLAT_ENT_CM = {"style": "ha-card { background: none !important; border: none !im
   " .type-entity { background: transparent !important; border-radius: 0px !important;"
   " box-shadow: none !important; min-height: 28px !important; overflow: visible !important; }"}
 
-# Fixed width for the two scanner columns (wide enough for the number sliders,
+# Fixed width for the three scanner columns (wide enough for the number sliders,
 # e.g. Idle Timer). The Setting-name column takes the remaining space (1fr).
 _COLW = "340px"
-# Minimum total width of a scanner row (200px label floor + 2×340px + 2×8px gap).
+# Minimum total width of a scanner row (200px label floor + 3×340px + 3×8px gap).
 # Section headers get the same floor so the blue bars span the full scroll width.
-_SCN_MINW = "896px"
+_SCN_MINW = "1244px"
 
-# Row layout: a 3-column CSS grid (Setting name | Scanner-01 | Scanner-02) with
-# the two scanner columns at a fixed equal width, everything vertically centred.
+# Row layout: a 4-column CSS grid (Setting name | Barcode-01 | Barcode-02 | Scanner-01)
+# with the three scanner columns at a fixed equal width, everything vertically centred.
 # When sep=True a thin bottom separator (matching the flex-tables) is added.
 def _row_cm(sep=True):
     # Core `grid` card renders a real CSS grid inside #root; card-mod can override
     # its inline grid-template-columns (unlike a horizontal-stack's flex :host).
     style = ("#root { display: grid !important;"
-             " grid-template-columns: minmax(200px, 1fr) %s %s !important;"
-             " align-items: center !important; gap: 0 8px !important; }") % (_COLW, _COLW)
+             " grid-template-columns: minmax(200px, 1fr) %s %s %s !important;"
+             " align-items: center !important; gap: 0 8px !important; }") % (_COLW, _COLW, _COLW)
     if sep:
         style += (" :host { display: block !important; border-bottom: 1px solid"
                   " rgba(255,255,255,0.28) !important; }")
@@ -931,11 +931,30 @@ def _scn_cell(entity):
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
       "entities": [{"entity": entity, "name": "", "icon": "mdi:blank", "card_mod": row_cm}]}
 
-def _scn_row(label, dom, suffix, sep=True):
-    return {"type": "grid", "columns": 3, "square": False, "card_mod": _row_cm(sep), "cards": [
+def _scn_empty():
+    # Placeholder for a cell whose device does not expose that entity - keeps the
+    # grid column occupied but visually blank.
+    return {"type": "custom:button-card", "name": "", "show_icon": False, "show_name": False,
+      "tap_action": {"action": "none"}, "styles": {"card": [{"background": "none"},
+        {"border": "none"}, {"box-shadow": "none"}, {"min-height": "26px"}, {"padding": "2px 8px"}]}}
+
+# Entity suffixes that scanner-01 actually exposes (see esphome/scanner-01.yaml).
+# Rows whose suffix is not in this set render an empty Scanner-01 cell.
+SCANNER01_HAS = {
+  "idle_timer", "last_scan", "barcode_read", "product_name", "product_description",
+  "stock", "scanning_enabled", "buzzer_volume", "collimation", "collimation_flashing",
+  "scanning_light", "same_code_delay", "startup_mode", "scanner_mode", "state"}
+
+def _scn_row(label, dom, suffix, sep=True, b1=True, b2=True, s1=None):
+    # Build the Barcode-01 / Barcode-02 / Scanner-01 cells. A device that lacks the
+    # entity (b1/b2/s1 False) gets a blank placeholder cell.
+    if s1 is None:
+        s1 = suffix in SCANNER01_HAS
+    return {"type": "grid", "columns": 4, "square": False, "card_mod": _row_cm(sep), "cards": [
       _scn_label(label),
-      _scn_cell("%s.barcode_01_%s" % (dom, suffix)),
-      _scn_cell("%s.barcode_02_%s" % (dom, suffix))]}
+      _scn_cell("%s.barcode_01_%s" % (dom, suffix)) if b1 else _scn_empty(),
+      _scn_cell("%s.barcode_02_%s" % (dom, suffix)) if b2 else _scn_empty(),
+      _scn_cell("%s.scanner_01_%s" % (dom, suffix)) if s1 else _scn_empty()]}
 
 def _scn_section(title, min_width=None):
     card = [{"background": "var(--vh-table-header-color, #4dabf5)"}, {"border": "none"},
@@ -951,9 +970,12 @@ def _scn_section(title, min_width=None):
         "name": [{"color": "#fff"}, {"font-size": "13px"}, {"font-weight": "bold"},
           {"justify-self": "start"}]}}
 
-_scn_cards = [{"type": "grid", "columns": 3, "square": False, "card_mod": _row_cm(True), "cards": [
-  _scn_label("Setting name", header=True), _scn_label("Scanner-01", header=True),
-  _scn_label("Scanner-02", header=True)]}]
+_scn_cards = [{"type": "grid", "columns": 4, "square": False, "card_mod": _row_cm(True), "cards": [
+  _scn_label("Setting name", header=True), _scn_label("Barcode-01", header=True),
+  _scn_label("Barcode-02", header=True), _scn_label("Scanner-01", header=True)]}]
+# State row at the very top of the table. Only Scanner-01 exposes a State sensor for
+# now; the Barcode-01/02 cells are intentionally left empty.
+_scn_cards.append(_scn_row("State", "sensor", "state", sep=True, b1=False, b2=False))
 for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
     _scn_cards.append(_scn_section(_title, min_width=_SCN_MINW))
     for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
