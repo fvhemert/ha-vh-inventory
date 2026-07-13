@@ -155,22 +155,6 @@ light:
     id: led_left_light
     output: led_left
 binary_sensor:
-  - platform: gpio                             # Right hardware button
-    name: "Right button"
-    pin:
-      number: "${button_right_pin}"
-      inverted: true
-      mode:
-        input: true
-        pullup: true
-  - platform: gpio                             # Left hardware button
-    name: "Left button"
-    pin:
-      number: "${button_left_pin}"
-      inverted: true
-      mode:
-        input: true
-        pullup: true
   - platform: gpio                             # Right hardware button - short press toggles Add <-> Use mode
     name: "Right button"
     pin:
@@ -192,6 +176,14 @@ binary_sensor:
               - select.set:
                   id: scanner_mode
                   option: "${txt_mode_add}"
+  - platform: gpio                             # Left hardware button
+    name: "Left button"
+    pin:
+      number: "${button_left_pin}"
+      inverted: true
+      mode:
+        input: true
+        pullup: true
 button:
   - platform: restart                          # Button to reset the board from Home Assistant
     name: "Restart"
