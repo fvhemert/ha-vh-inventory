@@ -29,11 +29,11 @@ The config references its WiFi credentials and API encryption key via ESPHome `!
 (`wifi_ssid2`, `wifi_password2`, `scanner_01_api_encryption_key`) — provide these in your
 ESPHome `secrets.yaml` before flashing.
 
-> ⚠️ **Note on the API key:** production currently has this device's API encryption key
-> hardcoded in its own copy of `scanner-01.yaml`. The repository version has been sanitised
-> to use `!secret scanner_01_api_encryption_key`. Before re-flashing this device from the
-> repository config, add that key to your ESPHome `secrets.yaml` (and ideally migrate the
-> production copy to the same `!secret` reference so the two stay in sync).
+> ✅ **API key:** both the repository and the production copies of `scanner-01.yaml` use
+> `key: !secret scanner_01_api_encryption_key`, with the value stored in the ESPHome
+> `secrets.yaml`. When flashing on a fresh setup, make sure that secret is defined. The
+> effective key is unchanged, so the `!secret` form only takes effect on the next
+> ESPHome build/flash of the device.
 
 ## Hardware (from the firmware config)
 
@@ -61,4 +61,3 @@ Minimum ESPHome version: `2024.11.0`.
 - [ ] Document the thermal-printer wiring and the specific printer model used.
 - [ ] Add device photos to `docs/images/scanner/`.
 - [ ] Add hardware reference material (ESP8266 pinout, SSD1306, printer) under `hardware/`.
-- [ ] Migrate the production `scanner-01.yaml` API key to `!secret` so prod matches the repo.
