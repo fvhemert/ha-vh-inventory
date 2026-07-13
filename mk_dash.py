@@ -847,6 +847,7 @@ SCANNER_SETTINGS = [
   ("Display", [
     ("Color Add mode", "select", "color_add_mode"),
     ("Color Use mode", "select", "color_use_mode"),
+    ("Display power", "switch", "display"),
     ("Display backlight", "light", "display_backlight"),
     ("Display Idle brightness", "number", "display_idle_brightness"),
     ("Display On brightness", "number", "display_on_brightness"),
@@ -943,7 +944,12 @@ def _scn_empty():
 SCANNER01_HAS = {
   "idle_timer", "last_scan", "barcode_read", "product_name", "product_description",
   "stock", "scanning_enabled", "buzzer_volume", "collimation", "collimation_flashing",
-  "scanning_light", "same_code_delay", "startup_mode", "scanner_mode", "state"}
+  "scanning_light", "same_code_delay", "startup_mode", "scanner_mode", "state", "display"}
+
+# Entity suffixes the barcode-01 / barcode-02 devices do NOT expose (they use a
+# light-based backlight rather than a switch.*_display). Rows whose suffix is in
+# this set render empty Barcode-01/02 cells.
+BARCODE_LACKS = {"display"}
 
 def _scn_row(label, dom, suffix, sep=True, b1=True, b2=True, s1=None):
     # Build the Barcode-01 / Barcode-02 / Scanner-01 cells. A device that lacks the
@@ -980,7 +986,9 @@ for _si, (_title, _rows) in enumerate(SCANNER_SETTINGS):
     _scn_cards.append(_scn_section(_title, min_width=_SCN_MINW))
     for _ri, (_lbl, _dom, _suf) in enumerate(_rows):
         _last_in_section = _ri == len(_rows) - 1
-        _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last_in_section))
+        _has_bc = _suf not in BARCODE_LACKS
+        _scn_cards.append(_scn_row(_lbl, _dom, _suf, sep=not _last_in_section,
+                                   b1=_has_bc, b2=_has_bc))
 # Scanner matrix is wider than a phone; let the box scroll horizontally on overflow
 # (desktop: 1fr expands and it fits, so no scrollbar appears).
 SCN_WRAP_CM = {"style": WRAP_CM["style"]
