@@ -585,14 +585,16 @@ def vh_inventory_add_product(barcode=None, name=None, description=None,
         return
     _, cat_by_name, _, store_by_name = _name_maps()
     bc = int(barcode) if barcode not in (None, "") else None
-    _exec("INSERT INTO products(barcode,name,description,manufacturer,unit,"
+    pid = _insert_id(
+          "INSERT INTO products(barcode,name,description,manufacturer,unit,"
           "auto_add_enabled,auto_add_threshold,auto_add_quantity,category_id,store_id) "
           "VALUES(?,?,?,?,?,?,?,?,?,?)",
           [bc, name, description, manufacturer, unit,
            1 if auto_add_enabled in (1, "1", True, "on") else 0,
            int(auto_add_threshold or 0), int(auto_add_quantity or 1),
            _resolve(category, cat_by_name), _resolve(store, store_by_name)])
-    _log_history("add", "products", None, "Added product '%s'" % name)
+    _log_history("add", "products", pid, "Added product '%s'" % name)
+    _apply_suggested_category(pid, name, manufacturer)
 
 
 @service
@@ -820,6 +822,7 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
          _resolve(category, cat_by_name), _resolve(store, store_by_name)])
     _log_history("add", "products", pid,
                  "Added product '%s' (manual resolve)" % name)
+    _apply_suggested_category(pid, name, manufacturer)
     pend = state.get("input_text.vh_pending_scan_id")
     if pend in (None, "", "unknown", "unavailable"):
         _publish()
@@ -881,6 +884,118 @@ def _product_id_for_barcode(bc):
     return None
 
 
+# Keyword rules mapping a product's name + manufacturer to one of the curated
+# categories. First keyword match wins; rules are evaluated top to bottom, so
+# more specific / higher-priority buckets come first. The right-hand category
+# names must match rows in the `categories` table -- _suggest_category only
+# returns a category that currently exists, so renaming/removing a category
+# simply stops auto-suggesting that bucket until the rule here is updated.
+_CATEGORY_RULES = [
+    ("Soep & bouillon",
+     ["cup-a-soup", "cup a soup", "erwtensoep", "tomatensoep", "bouillon",
+      " jus", "rundvlees jus", "maggi ind", "romige tomatensoep"]),
+    ("Kruiden & specerijen",
+     ["verstegen", "peper", "oregano", "kerrie", "curry", "kurkuma", "cayenne",
+      "komijn", "laos gemalen", "peterselie", "zeezout", "basilicum",
+      "kaneel gemalen", "rozemarijn", "italiaanse kruiden", "paprikapoeder",
+      "paprika poeder", "nootmuskaat", "thymian", "tijm", "provencaalse",
+      "bieslook", "djah", "ketoembar", "vetsin", "anijszaad", "knoflookpoeder",
+      "chili vlokken", "hähnchen", "mix voor patat", "salt &pepper", "jozo",
+      "sterrenmunt"]),
+    ("Pasta, rijst & aardappel",
+     ["macaroni", "lasagne", "rijst", "rice ", "rice sticks", " rice",
+      "couscous", "noodle", "noedel", "wok noodles", "pad thai", "zilvervlies",
+      "aardappel", "puree"]),
+    ("Conserven (groente, vis & vlees)",
+     ["bonen", "mais", "maiz", "doperwt", "witte bonen", "kidney", "ananas",
+      "appelmoes", "sardine", "tonijn", "crispy maïs", "crispy mais",
+      "kroepoek", "cassave", "knakworst", "hotdog", "worst", "snijbonen",
+      "javaant"]),
+    ("Sauzen, olie & smaakmakers",
+     ["ketchup", "mosterd", "senf", "satésaus", "saté", "satesaus", "salsa",
+      "woksaus", "tomato frito", "sugo", "bolognese", "arrabiat",
+      "tomaten saus", "dip ", "dipstok", "dressing", "wijko", "fried onion",
+      "jakarta", "olie", "olijfolie", "black bean"]),
+    ("Brood & beleg",
+     ["brood", "broodje", "cracotte", "wasa", "knäcke", "toast", "tostada",
+      "cracker", "triangel", "naan", "pinsa", "piadina", "pan tostado",
+      "tapas toast", "paneermeel", "zandeeg", "tortelet", "pindakaas",
+      "hagelslag", "hagel", "nutella", "confiture", "aardbeien", "appelstroop",
+      "honing", "maïswafel", "maiswafel", "strooikaas", "parmez", "desem",
+      "kaiser"]),
+    ("Dranken (koffie, thee & sap)",
+     ["koffiecup", "ristretto", "lungo", "nescafe", "crema", "lavazza",
+      "rooibos", "thee", "ice tea", "grenadine", "sirop", "siroop",
+      "appel- en peer", "haferdrink", "alpro", "melk", "koffiemelk",
+      "opschuimmelk", "latte", "koffie"]),
+    ("Snacks & zoetwaren",
+     ["chips", "pringles", "nacho", "drop", "mentos", "m&m", "peanut m",
+      "festini", "bastogne", "koek", "stroopwafelcake", "dropfruit",
+      "scheepsknopen", "schoolkrijt", "venco"]),
+    ("Bakken & zoetstoffen",
+     ["suiker", "zoetstof", "poedersuiker", "rietsuiker", "allesbinder",
+      "maizena", "maïzena", "baking soda", "vruchtenhagel", "pannekoek",
+      "pannenkoek", "mix om", "mix voor stroopwafel", "tafelzoet",
+      "kaneelsuiker"]),
+    ("Huishouden & verzorging",
+     ["wattenstaaf", "cotton", "handzeep", "green soap", " soap", "dreft"]),
+]
+
+
+def _suggest_category(name, mfr, cat_by_name):
+    """Suggest an existing category for a product from its name + manufacturer
+    using _CATEGORY_RULES (first keyword match wins, case-insensitive). Returns
+    the real category name only when that category currently exists in the DB;
+    otherwise None (nothing matched, or the matched bucket was renamed/removed)."""
+    hay = ((name or "") + " " + (mfr or "")).lower()
+    lower_to_real = {}
+    for real_name in cat_by_name:
+        lower_to_real[real_name.lower()] = real_name
+    for cat, kws in _CATEGORY_RULES:
+        for kw in kws:
+            if kw and kw in hay:
+                return lower_to_real.get(cat.lower())
+    return None
+
+
+def _notify_uncategorised(pid, name, mfr=None, hint=None):
+    """Fire a persistent notification proposing that a newly scanned product may
+    need a (possibly new) category, because no rule matched it. Wrapped in
+    try/except so a notification problem can never break scanning."""
+    label = name or ("#%d" % pid)
+    msg = ("Nieuw product '%s' kon niet automatisch worden ingedeeld. Ken een "
+           "categorie toe (Voorraad- of Producten-tab) of voeg een nieuwe "
+           "categorie toe op het tabblad Categorieën." % label)
+    if hint:
+        msg += " (Online categorie: %s)" % hint
+    try:
+        service.call("persistent_notification", "create",
+                     title="VH Inventory - nieuwe categorie?",
+                     message=msg, notification_id="vh_uncat_%d" % pid)
+    except Exception:
+        pass
+
+
+def _apply_suggested_category(pid, name, mfr, hint=None):
+    """For a freshly created product with no category, auto-assign a suggested
+    category (from _suggest_category) or, when nothing matches, flag it for
+    manual categorisation. Never overrides a category the user already set."""
+    if pid in (None, ""):
+        return
+    row = _fetch_one_sql("SELECT category_id FROM products WHERE id=?", [int(pid)])
+    if row and row.get("category_id"):
+        return
+    _, cat_by_name, _, _ = _name_maps()
+    sug = _suggest_category(name, mfr, cat_by_name)
+    if sug:
+        _exec("UPDATE products SET category_id=? WHERE id=? AND category_id IS NULL",
+              [_resolve(sug, cat_by_name), int(pid)])
+        _log_history("update", "products", int(pid),
+                     "Auto-categorised as '%s' (suggested)" % sug)
+    else:
+        _notify_uncategorised(int(pid), name, mfr, hint)
+
+
 def _create_product_from_scan(bc, info):
     """Create a product from a resolved scan with auto-add enabled (1/1/1).
     Returns the new products.id."""
@@ -896,6 +1011,8 @@ def _create_product_from_scan(bc, info):
     _log_history("add", "products", pid,
                  "Auto-created product '%s' from scan %s (auto-add 1/1/1)"
                  % (name, bc))
+    _apply_suggested_category(pid, name, info.get("manufacturer"),
+                              info.get("category"))
     return pid
 
 
