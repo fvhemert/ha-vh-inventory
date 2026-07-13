@@ -861,7 +861,7 @@ script:
 #   Toevoegen -> Add, Gebruiken -> Use. Non-product modes fire
 #   esphome.scanner_generic and are ignored here. This applies the exact same
 #   logic as a manually typed barcode via pyscript.vh_inventory_scan_enqueue.
-# Currently scoped to barcode-01 and barcode-02; to add another scanner, extend
+# Currently scoped to barcode-01, barcode-02 and scanner-01; to add another scanner, extend
 # the device condition below (the mode entity is derived from the device name).
 # ---------------------------------------------------------------------------
 automation:
@@ -878,7 +878,7 @@ automation:
         event_type: esphome.scanner_product
     conditions:
       - condition: template
-        value_template: "{{ (trigger.event.data.device | default('')) in ['barcode-01', 'barcode-02'] }}"
+        value_template: "{{ (trigger.event.data.device | default('')) in ['barcode-01', 'barcode-02', 'scanner-01'] }}"
       - condition: template
         value_template: "{{ (trigger.event.data.barcode | default('') | string | trim) != '' }}"
     variables:
