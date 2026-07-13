@@ -290,6 +290,19 @@ Scan outcomes can trigger the shared, decoupled **spoken announcements (TTS)** a
 notifications** configured on the Setup tab (e.g. the *Used from inventory* and *Unresolved
 scan* announcements) — these fire for every scanner, not just the handheld.
 
+### Large screen barcode scanners (ESPHome)
+
+The system also supports two purpose-built **Large screen barcode scanners** — ESP32-based
+devices (**Barcode-01** and **Barcode-02**) with a 2.8" touchscreen and a GM67 scanner
+module, built with ESPHome and LVGL. From their on-device UI you pick **Add**, **Use**, or
+**Print** mode and scan; each scan fires a Home Assistant event that this solution's
+automations process exactly like any other scanner, pushing the product name, description,
+and stock back to the device's screen.
+
+Their firmware lives in [`esphome/`](../esphome), hardware reference material in
+[`hardware/`](../hardware), and full documentation (build environment, wiring, user flow,
+and GM67 configuration) in the **[Large screen barcode scanners guide](SCANNER.md)**.
+
 ---
 
 ## 8. History (audit log)

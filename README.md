@@ -6,6 +6,8 @@ entry, with a fully multi-language UI (English / Nederlands), thermal-printer su
 optional decoupled Dutch voice announcements (Chime TTS on Sonos) and mobile push
 notifications. A hands-free **handheld scanner** (an ESPHome/MQTT barcode reader) can add or
 consume stock directly, switched between **Add** and **Use** mode from the Inventory tab.
+Two dedicated **[Large screen barcode scanners](docs/SCANNER.md)** (ESP32/ESPHome touchscreen
+devices) are also supported for a full on-device scan-and-print experience.
 Searching any table matches on **product name or barcode**. The inventory stays tidy:
 products that run out (stock 0) drop off the list automatically while staying on your
 shopping list.
@@ -53,6 +55,9 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
   per-store and per-category thermal printing, auto-add, and language switching.
 - 🗑️ **[Uninstall Guide](docs/UNINSTALL.md)** — cleanly remove the solution: dashboard,
   files, `configuration.yaml` blocks, entities, recorder history, and shared dependencies.
+- 📡 **[Large screen barcode scanners](docs/SCANNER.md)** — the two ESP32/ESPHome
+  touchscreen scanners (Barcode-01 / Barcode-02) that feed the system: hardware, build
+  environment, wiring, user flow, and GM67 configuration.
 
 ## Repository layout
 
@@ -67,6 +72,16 @@ copying each folder to the matching location under `/config`:
 | `translations/*.json` | (next to `mk_dash.py`) | Build-time inputs for the multi-language layer |
 | `mk_dash.py` | your workstation | Builds and publishes the Lovelace dashboard over WebSocket |
 | `configuration.example.yaml` | merge into `/config/configuration.yaml` | The only additions your root config needs (see below) |
+
+Two optional folders hold the **Large screen barcode scanners** (ESPHome) — they are *not*
+copied into `/config` and are only needed if you build the physical scanners:
+
+| Path in this repo | What it is |
+|---|---|
+| `esphome/` | ESPHome device firmware for **Barcode-01** and **Barcode-02** (flash with ESPHome; needs your `secrets.yaml`) |
+| `hardware/` | Hardware reference: ESP32 pinouts, GM67 manual, MSP2401 display, EPSON TM-T20III printer docs & tooling |
+
+See the **[Large screen barcode scanners guide](docs/SCANNER.md)** for details.
 
 ## Configuration
 

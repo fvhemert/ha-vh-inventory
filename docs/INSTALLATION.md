@@ -33,6 +33,12 @@ VH-Inventory has three layers:
  sensor.vh_inventory_*  ──►  Lovelace dashboard (flex-table + bubble-card popups)
 ```
 
+> **Scanner inputs are pluggable.** Any source that feeds a barcode — the on-screen Scan
+> tab, a handheld MQTT scanner, or the dedicated **Large screen barcode scanners**
+> (ESP32/ESPHome touchscreen devices, see [`docs/SCANNER.md`](SCANNER.md)) — flows through
+> the same services. Building the physical scanners is optional; their firmware and hardware
+> reference live in `esphome/` and `hardware/` and are not copied into `/config`.
+
 ---
 
 ## 2. Prerequisites

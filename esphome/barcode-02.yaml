@@ -1,0 +1,1770 @@
+#########################################################################################################################
+# ---- Display test
+#     0.5     Working version
+#     0.5.1   Updated splashscreen with logo, fixed issues with dim while idle
+#     0.5.2   Changed display colors to align with splash screen
+#     0.5.3   New Home Assistant Event names, implemented generic barcodes / qr codes
+#     0.5.4   Added Config page with sliders for brightness and idle timer settings
+#     0.5.5   Changes to support new LVGL support for rotation
+#     0.6.0   Updated and moved to production server
+#     0.6.1   Added device identifier to HA events
+#########################################################################################################################
+substitutions:
+  name: "barcode-02"
+  friendly_name: "barcode-02"
+  project_name: 'Boodschappen scanner'
+  project_version: '0.6.1'
+  # Ports for display
+  dis_cs_pin: GPIO05        # Display board PIN 3
+  dis_reset_pin: GPIO22     # Display board PIN 4
+  dis_dc_pin: GPIO04        # Display board PIN 5
+  dis_mosi_pin_spi: GPIO23  # Display board PIN 6
+  dis_clk_pin_spi: GPIO18   # Display board PIN 7
+  dis_pin_led: GPIO15       # Display board PIN 8
+  dis_miso_pin_spi: GPIO19  # Display board PIN 9
+  # Ports for Touch, to facilitate easy wiring not using a shared SPI         
+  touch_clk_spi: GPIO21     # Display board PIN 10
+  touch_cs: GPIO14          # Display board PIN 11
+  touch_dn_mosi_spi: GPIO17 # Display board PIN 12
+  touch_do_miso_spi: GPIO16 # Display board PIN 13
+  touch_irq: GPIO27         # Display board PIN 14
+  # UART-Pins  Barcode-Scanner
+  uart_rx_pin_scan: GPIO03            # Black wire
+  uart_tx_pin_scan: GPIO01            # Yellow wire
+  # Logo to show at boot and when idle
+  logo_file: '_images/van_hemert_inverted_lo.png'                        # Company logo shown at boot
+  # Display text
+  txt_barcode: 'Barcode'
+  txt_stock: 'Voorraad'
+  txt_product_name: 'Produkt naam'
+  txt_product_description: 'Omschrijving'
+  txt_mode_add: 'Toevoegen'
+  txt_mode_use: 'Gebruiken'
+  txt_mode_off: 'Off'
+  txt_make_choice: "Maak een keuze"
+  txt_action_scan_a_product: "Scan een barcode"
+  txt_mode_print: 'Afdrukken'
+  txt_mode_print_shoppinglist: 'Boodschappen'
+  txt_mode_print_inventory: 'Voorraad'
+  txt_mode_config: 'Config'  
+  # Events triggered by scanning
+  product_barcode_scanned: 'esphome.scanner_product'
+  generic_barcode_scanned: 'esphome.scanner_generic'
+  # Display rotation
+  display_rotation: 90
+#########################################################################################################################
+# ---- MCU setup and config                                                                       
+#########################################################################################################################
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: false
+  min_version: 2026.1.0
+  project:
+    name: display.vanhemert
+    version: "${project_version}"
+  on_boot:                                    # Show the splash screen with company logo
+      - switch.turn_off: idle_mode            # Set the screen brightness to high
+      - script.execute: timer_start           # Start the time to dim the splash screen when expires
+# Definition for ESP32-WROOM-32D / HW-395-v0.0.3
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    advanced:
+      minimum_chip_revision: "3.1"            # Reduces the size of the BIN file, only for specific boards
+      sram1_as_iram: true                     # Extra 40KB IRAM from bootloader support
+# API Encryption key to connect to Home Assistant
+api:
+  encryption:
+    key: !secret barcode_02_api_encryption_key
+# When client connected show the connection icon in the to header 
+  on_client_connected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - logger.log: 
+              level: INFO
+              format: "Scanner connected to Home Assistant"
+          - lvgl.widget.show: lbl_hastatus    # Show the 'connected' status icon when connected    
+# When client disconnected remove the connection icon in the to header          
+  on_client_disconnected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - logger.log: 
+              level: INFO
+              format: "Scanner disconnected from Home Assistant"
+          - lvgl.widget.hide: lbl_hastatus    # Remove the 'connected' status icon when disconnected              
+# Allow Over-The-Air updates
+ota:
+  - platform: esphome
+    password: !secret barcode_02_ota_password
+# WiFi settings from secrets file
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "barcode-02 Fallback Hotspot"
+    password: !secret barcode_02_fallback_hotspot_password
+# Enable web portal
+captive_portal:  
+# Enable logging  
+logger:
+  level: INFO
+#########################################################################################################################
+#  SENSORS
+#########################################################################################################################
+output:
+  - platform: ledc                             # PWM output for display backlight
+    pin: "${dis_pin_led}"              
+    id: backlight_pwm
+globals:
+  - id: timer_remaining                        # Idle timer to switch back to the main page
+    type: int
+    restore_value: no
+  - id: timer_running                          # Indicates if the idle timer is running
+    type: bool
+    restore_value: no
+    initial_value: "false"
+light:
+  - platform: monochromatic                    # Display backlight, intensity can be controlled through PWM
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: ALWAYS_ON
+button:  
+  - platform: restart                          # Button to reset the board from Home Assistant
+    name: "Restart"
+    entity_category: CONFIG
+text_sensor:
+  - platform: template                         # Contains the last barcode that was scanned
+    id: last_barcode               
+    name: Barcode read
+    icon: mdi:barcode
+    on_value:
+      then:
+        - lvgl.label.update:                   # If the barcode is updated, also show on the display
+            id: lbl_barcode_val
+            text:
+              format: "%s"
+              args: [ 'id(last_barcode).state.c_str()' ]
+number:
+  - platform: template                         # Display brightness when the device is in IDLE mode
+    name: "Display IDLE Brightness"
+    id: brightness_idle
+    min_value: 1
+    max_value: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: "mdi:brightness-6"
+    optimistic: true
+    restore_value: true
+    initial_value: 40
+    entity_category: config
+  - platform: template                         # Display brighness when the device is OPERATIONAL
+    name: "Display ON Brightness"
+    id: brightness_on
+    min_value: 1
+    max_value: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: "mdi:brightness-6"
+    optimistic: true
+    restore_value: true
+    initial_value: 100
+    entity_category: config
+  - platform: template                         # IDLE Timer, time to return to home screen
+    name: "Idle Timer"
+    id: idle_timer
+    min_value: 1
+    max_value: 60
+    step: 5
+    unit_of_measurement: "s"
+    icon: "mdi:timer-outline"
+    optimistic: true
+    restore_value: true
+    initial_value: 30
+    entity_category: config
+switch:   
+  - platform: template
+    name: "Print Shopping List"                # Switch to trigger the print action automation
+    id: sw_print_shopping_list
+    icon: mdi:printer
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:                                # When HA/ESPHome turns the switch ON -> show checked state on the LVGL button
+      - lvgl.widget.update:
+          id: btn_print_shopping_list
+          state:
+            checked: true
+    on_turn_off:                               # When HA/ESPHome turns the switch OFF -> clear checked state on the LVGL button
+      - lvgl.widget.update:
+          id: btn_print_shopping_list
+          state:
+            checked: false
+  - platform: template
+    name: "Print Inventory List"               # Switch to trigger the print action automation
+    id: sw_print_inventory_list
+    icon: mdi:printer
+    optimistic: true
+    restore_mode: ALWAYS_OFF                  
+    on_turn_on:                                # When HA/ESPHome turns the switch ON -> show checked state on the LVGL button
+      - lvgl.widget.update:
+          id: btn_print_inventory_overview
+          state:
+            checked: true
+    on_turn_off:                               # When HA/ESPHome turns the switch OFF -> clear checked state on the LVGL button
+      - lvgl.widget.update:
+          id: btn_print_inventory_overview
+          state:
+            checked: false
+  - platform: template
+    name: "Idle Mode"                          # Boolean that indicates the mode the scanner is in IDLE or ON
+    id: idle_mode
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    entity_category: diagnostic   
+    internal: true                            # Not exposed in Home Assistant
+    on_turn_on:                                # If the mode is IDLE then screen brighness to low
+      - light.turn_on:
+          id: backlight
+          brightness: !lambda |-
+            return id(brightness_idle).state / 100.0;
+    on_turn_off:                               # If the mode is ON then screen brighness to HIGH
+      - light.turn_on:
+          id: backlight
+          brightness: !lambda |-
+            return id(brightness_on).state / 100.0;
+  - platform: template                         
+    name: "Collimation Flashing"               # Scanner configuration - Collimation Flashing
+    id: collimation_flashing
+    optimistic: true
+    icon: mdi:line-scan
+    entity_category: CONFIG
+    restore_mode : RESTORE_DEFAULT_ON 
+    turn_on_action:
+      - uart.write: 
+          id: scanner
+          data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xB8, 0x00, 0xFD, 0x7C]
+    turn_off_action:
+      - uart.write: 
+          id: scanner
+          data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xB8, 0x01, 0xFD, 0x7B]
+  - platform: template 
+    name: "Scanning Enabled"                   # Scanner configuration - Enable scanning
+    id: scanning_enable
+    optimistic: true
+    icon: mdi:barcode-off
+    entity_category: CONFIG
+    #restore_mode : RESTORE_DEFAULT_ON 
+    restore_mode : ALWAYS_OFF                  # Scanner should be OFF at boot
+    turn_on_action:
+      - uart.write: 
+          id: scanner                          # Show the scanner icon from the top bar
+          data: [0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F]
+      - lvgl.widget.show: lbl_scanner_status
+    turn_off_action:
+      - uart.write: 
+          id: scanner
+          data: [0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E]
+      - lvgl.widget.hide: lbl_scanner_status   # Remove the scanner icon from the top bar
+text:
+  - platform: template                         # Product name sent from Home Assistant after lookup of barcode
+    name: "Product Name"
+    id: product_name
+    icon: mdi:label
+    mode: text          
+    min_length: 0
+    max_length: 64
+    initial_value: ""
+    restore_value: false
+    optimistic: true                           # Optional, keep HA and device in sync quickly
+    on_value:
+      then:
+        - logger.log:
+            level: INFO                        # Write a log entry if a product name is received
+            format: "New Product Name received from HA: %s"
+            args: [ 'x.c_str()' ]              
+        - lvgl.label.update:                   # Update the label on the display page
+            id: lbl_name_val
+            text:
+              format: "%s"
+              args:  [ 'x.c_str()' ]           
+  - platform: template                         # Product description sent from Home Assistant after lookup of barcode
+    name: "Product Description"
+    id: product_description
+    icon: mdi:label
+    mode: text          
+    min_length: 0
+    max_length: 64
+    initial_value: ""
+    restore_value: false
+    optimistic: true                           # Optional, keep HA and device in sync quickly
+    on_value:
+      then:
+        - logger.log:                          # Write a log entry if a product description is received
+            level: INFO
+            format: "New Product Description received from HA: %s"
+            args: [ 'x.c_str()' ]              
+        - lvgl.label.update:                   # Update the label on the display page
+            id: lbl_description_val
+            text:
+              format: "%s"
+              args:  [ 'x.c_str()' ]           
+  - platform: template                         # Product dstock sent from Home Assistant after lookup of barcode
+    name: "Stock"
+    id: product_stock
+    icon: mdi:label
+    mode: text          
+    min_length: 0
+    max_length: 64
+    initial_value: "-"
+    restore_value: false
+    optimistic: true                           # Optional, keep HA and device in sync quickly
+    on_value:
+      then:
+        - logger.log:                          # Write a log entry if a product description is received
+            level: INFO
+            format: "New Product stock received from HA: %s"
+            args: [ 'x.c_str()' ]              
+        - lvgl.label.update:                   # Update the label on the display page
+            id: lbl_stock_val
+            text:
+              format: "%s"
+              args:  [ 'x.c_str()' ]           
+#########################################################################################################################
+# Home Assistant events
+#########################################################################################################################
+event:
+  - platform: template                         # Provided for diagnostic purposes only. You should use the HA event "esphome.barcode_scan" triggered when a scan is performed
+    name: "Last Scan"
+    id: "last_scan"
+    icon: mdi:barcode-scan
+    entity_category: DIAGNOSTIC
+    disabled_by_default: false
+    event_types:
+     - "barcode_scanned"
+#########################################################################################################################
+#  TIMERS
+#########################################################################################################################
+interval:
+  - interval: 1s                                                # IDLE timer to switch back to the default page and dim the display brightness
+    then:
+      - if:
+          condition:
+            lambda: 'return id(timer_running);'
+          then:
+            - lambda: |-
+                if (id(timer_remaining) > 0) id(timer_remaining)--;
+                if (id(timer_remaining) == 0) id(timer_running) = false;
+            - lvgl.label.update:                                # Update the label at the left top of the page with the remaining time 
+                id: lbl_idletimer
+                text: !lambda |-
+                  char buf[16];
+                  snprintf(buf, sizeof(buf), "%d sec", id(timer_remaining));
+                  return std::string(buf);            
+            - if:
+                condition:                                      # Expire when timer hits 0
+                  lambda: 'return id(timer_remaining) == 0;'
+                then: 
+                  - if:                                         # Determine what to do, splash screen-> dim or detail screen -> return to choice
+                      condition:
+                        lambda: |-
+                          return lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);
+                      then:                                     # On timeout on any screen (except splash) go to SPLASH screen
+                        - lvgl.widget.hide: lbl_idletimer       # Hide the timer indication at the top left of the page
+                        - script.execute: show_splash_screen
+                        - logger.log:
+                            level: INFO
+                            format: "Timer expired, go to SPLASH screen"
+                      else:                                     # On timeout on splash screen, dim brightness
+                        - switch.turn_on: idle_mode
+                        - logger.log:
+                            level: INFO
+                            format: "Timer expired, dimming the screen"                      
+#########################################################################################################################
+#  GRAPHIC DISPLAY DEFINITION
+#########################################################################################################################
+font:                                                           # Fonts located in the /homeassistant/esphome/_fonts folder
+  - file: "_fonts/arial.ttf"
+    id: arial_font_14
+    size: 14
+    glyphs:  >-
+      'ß!?"%()+*=,-_.:°ø0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÄÜÖ abcdefghijklmnopqrstuvwxyzäüöïéè€@<>/
+  - file: "_fonts/arial.ttf"
+    id: arial_font_20
+    size: 20
+    glyphs:  >-
+      'ß!?"%()+*=,-_.:°ø0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÄÜÖ abcdefghijklmnopqrstuvwxyzäüöïéè€@<>/
+  - file: "_fonts/arial.ttf"
+    id: arial_font_24
+    size: 24
+    glyphs:  >-
+      'ß!?"%()+*=,-_.:°ø0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÄÜÖ abcdefghijklmnopqrstuvwxyzäüöïéè€@<>/
+# Material Design Icons  https://fonts.google.com/icons?selected=Material+Symbols+Outlined:search:FILL@0;wght@400;GRAD@0;opsz@24&icon.size=24&icon.color=%235f6368
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: icons_22
+    size: 22
+    glyphs: [
+      "\U0000e70b", # mdi:barcode
+      "\U0000e70c", # mdi:barcode-scanner
+      "\U0000f85c", # mdi:barcode-reader
+      "\U0000e63e", # mdi:wifi
+      "\U0000e8b6", # mdi:search
+      "\U0000e8ac"  # mdi:power
+      ] 
+image:
+  - file: "${logo_file}"                                        # Company logo for the SPLASH screen 
+    id: logo_image
+    resize: 280x200
+    type: RGB565
+    transparency: alpha_channel
+color:           
+  - id: my_black
+    red: 0%
+    green: 0%
+    blue: 0%
+  - id: my_white
+    red: 100%
+    green: 100%
+    blue: 100%
+  - id: my_grey
+    hex: "A9A9A9"
+# Definition of the user interface
+lvgl:
+  rotation: "${display_rotation}"
+  style_definitions:
+    # Base tile look — steel blue with gold accents matching monogram ---
+    - id: style_base
+      bg_opa: COVER
+      bg_color: 0x4A5A6A          # Steel blue from monogram
+      bg_grad_color: 0x3A4A5A     # Darker steel blue gradient
+      bg_grad_dir: VER
+      radius: 10
+      clip_corner: true
+      border_width: 2
+      border_opa: 70%
+      border_color: 0xDBA85A      # Gold border on blue buttons
+      shadow_color: 0xDBA85A      # Gold glow
+      shadow_opa: 20%
+      shadow_width: 20
+      shadow_spread: 2
+      shadow_offset_y: 8
+      shadow_offset_x: 0
+      pad_left: 14
+      pad_right: 14
+      pad_top: 12
+      pad_bottom: 14
+      text_font: arial_font_20
+      text_color: 0xDBA85A        # Gold text on blue buttons
+    # Style definition top layer
+    - id: style_top_layer         # Top bar — gold-filled
+      bg_color: 0xDBA85A          # Yellow/gold fill
+      bg_grad_color: 0xC89848     # Slightly deeper gold gradient
+      radius: 10
+      text_font: arial_font_20
+      border_width: 0             # Clean gold bar, no border needed
+    # Style definition Button borders
+    - id: style_details_border    # Details page sections — gold accent
+      bg_color: 0x0D0D0D
+      bg_opa: COVER
+      border_width: 2
+      border_opa: 60%
+      border_color: 0xDBA85A      # Gold border
+      radius: 10
+      shadow_color: 0xDBA85A      # Gold glow
+      shadow_opa: 15%
+      shadow_width: 12
+      shadow_spread: 1
+      shadow_offset_y: 4
+      shadow_offset_x: 0
+    # Style definition Text labels
+    - id: style_details_text      # Labels — silver
+      bg_opa: TRANSP
+      text_color: 0xB0B0B4
+      text_font: montserrat_14
+    # Style definition Value labels
+    - id: style_details_val       # Values — yellow/gold
+      bg_opa: TRANSP
+      text_font: arial_font_20
+      text_color: 0xDBA85A
+  top_layer:
+    widgets:
+      - obj:                      # Top bar for the display
+          id: top_bar
+          styles:
+              - style_base
+              - style_top_layer
+          align: TOP_MID
+          width: 100%
+          height: 38
+          on_click:
+            then:
+              - script.execute: show_mode_selection
+      - label:                    # Icon — API connection status
+          text: "\uF1EB"
+          id: lbl_hastatus
+          hidden: true
+          align: top_right
+          x: -7
+          y: 10
+          text_align: right
+          text_color: 0x0D0D0D    # Dark on gold bar
+      - label:                    # Icon — scanner status
+          text: "\U0000f85c"
+          text_font: icons_22
+          id: lbl_scanner_status
+          hidden: true
+          align: top_right
+          x: -35
+          y: 5
+          text_align: right
+          text_color: 0x0D0D0D    # Dark on gold bar
+      - label:                    # Idle timer remaining time
+          text: "nn"
+          id: lbl_idletimer
+          hidden: true
+          align: top_left
+          x: 10
+          y: 10
+          text_align: left
+          text_color: 0x0D0D0D    # Dark on gold bar
+      - label:                    # Top bar title
+          text: "van Hemert"
+          id: lbl_top_text
+          hidden: false
+          align: TOP_MID
+          x: 10
+          y: 4
+          width: 300
+          height: 26
+          text_align: CENTER
+          text_color: 0x0D0D0D      # Dark on gold bar
+          text_font: arial_font_24
+      - obj:                        # Splash screen with company logo
+          id: boot_screen
+          x: 0
+          y: 0
+          width: 100%
+          height: 100%
+          bg_color: 0x000000
+          bg_opa: COVER
+          radius: 0
+          pad_all: 0
+          border_width: 0
+          widgets:
+            - image:
+                align: CENTER
+                src: logo_image
+                y: -20
+            - label:                    # Project name and version on splash
+                text: "${name} - v${project_version}"
+                id: splash_text
+                hidden: false
+                x: 10
+                y: 200
+                width: 300
+                height: 26
+                text_align: CENTER
+                text_color: 0xB0B0B4    # Silver version text
+                text_font: arial_font_20   
+          on_press:                     # Touching the screen will switch based on HA startup mode setting
+            - if:
+                condition:
+                  lambda: 'return id(startup_mode).current_option() == "${txt_mode_add}";'
+                then:
+                  - script.execute: show_add_product
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return id(startup_mode).current_option() == "${txt_mode_use}";'
+                      then:
+                        - script.execute: show_use_product
+                      else:
+                        - script.execute: show_mode_selection
+  pages:
+    - id: page_mode_selection           # Mode selection — ADD / USE / PRINT
+      bg_color: 0x0D0D0D
+      widgets:
+        - button:                       # Button to switch to the ADD page
+            id: btn_mode_add          
+            styles:
+              - style_base
+            x: 0
+            y: 70
+            width: 155
+            height: 70
+            checkable: false
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap
+                  text: "${txt_mode_add}"
+            on_click:
+              then:
+                - script.execute: show_add_product
+        - button:                       # Button to switch to the USE page
+            id: btn_mode_use
+            styles:
+              - style_base
+            x: 165
+            y: 70
+            width: 155
+            height: 70
+            checkable: false
+            pressed:
+              bg_color: 0x5A6A7A        # Lighter steel blue on press
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap                  
+                  text: "${txt_mode_use}"
+            on_click:
+              then:
+                - script.execute: show_use_product
+        - button:                       # Button to switch to the PRINT page
+            id: btn_mode_print
+            styles:
+              - style_base
+            x: 0
+            y: 150
+            width: 155
+            height: 70
+            checkable: false
+            pressed:
+              bg_color: 0x5A6A7A        # Lighter steel blue on press
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap
+                  text: "${txt_mode_print}"
+            on_click:
+              then:
+                - script.execute: show_page_printing
+        - button:                       # Button to switch to the CONFIG page
+            id: btn_mode_config
+            styles:
+              - style_base
+            x: 165
+            y: 150
+            width: 155
+            height: 70
+            checkable: false
+            pressed:
+              bg_color: 0x5A6A7A        # Lighter steel blue on press
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap
+                  text: "${txt_mode_config}"
+            on_click:
+              then:
+                - script.execute: show_page_config
+    - id: page_printing                 # Print selection — shopping list / inventory
+      bg_color: 0x0D0D0D
+      widgets:
+        - button:
+            id: btn_print_shopping_list
+            styles:
+              - style_base
+            x: 0
+            y: 70
+            width: 155
+            height: 70
+            checkable: true
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap
+                  text: "${txt_mode_print_shoppinglist}"
+            on_click:                   # When the button is clicked, the Home Assistant device is set to on.
+              then:                     # This will trigger an automation that will start printing
+                - if:                   # When done printing the Home Assistant device is turned off
+                    condition:
+                      lambda: |-
+                        return lv_obj_has_state(id(btn_print_shopping_list), LV_STATE_CHECKED);
+                    then:
+                      - switch.turn_on: sw_print_shopping_list
+                    else:
+                      - switch.turn_off: sw_print_shopping_list
+        - button:
+            id: btn_print_inventory_overview
+            styles:
+              - style_base
+            x: 165
+            y: 70
+            width: 155
+            height: 70
+            checkable: true
+            pressed:
+              bg_color: 0x5A6A7A        # Lighter steel blue on press
+            widgets:
+              - label:
+                  align: CENTER
+                  long_mode: wrap                  
+                  text: "${txt_mode_print_inventory}"
+            on_click:                   # When the button is clicked, the Home Assistant device is set to on.
+              then:                     # This will trigger an automation that will start printing
+                - if:                   # When done printing the Home Assistant device is turned off
+                    condition:
+                      lambda: |-
+                        return lv_obj_has_state(id(btn_print_inventory_overview), LV_STATE_CHECKED);
+                    then:
+                      - switch.turn_on: sw_print_inventory_list
+                    else:
+                      - switch.turn_off: sw_print_inventory_list
+    - id: page_config                   # Configuration — brightness & timer sliders
+      bg_color: 0x0D0D0D
+      widgets:
+        # ---- Idle Brightness slider ----
+        - label:
+            x: 10
+            y: 48
+            width: 200
+            height: 18
+            text_color: 0xB0B0B4        # Silver label text
+            text_font: arial_font_14
+            text_align: LEFT
+            text: "Idle Brightness"
+        - label:
+            id: lbl_brightness_idle_val
+            x: 220
+            y: 48
+            width: 80
+            height: 18
+            text_color: 0xDBA85A        # Gold value text
+            text_font: arial_font_14
+            text_align: RIGHT
+            text: "40%"
+        - slider:
+            id: slider_brightness_idle
+            x: 30
+            y: 82
+            width: 260
+            height: 10
+            min_value: 1
+            max_value: 100
+            value: 40
+            bg_color: 0x3A4A5A          # Steel blue track
+            bg_opa: COVER
+            indicator:
+              bg_color: 0xDBA85A        # Gold filled portion
+              bg_opa: COVER
+            knob:
+              bg_color: 0x4A5A6A        # Steel blue knob
+              border_color: 0xDBA85A    # Gold knob border
+              border_width: 2
+              radius: 10
+              pad_all: 12
+            on_value:
+              then:
+                - script.execute: timer_reset
+                - number.set:
+                    id: brightness_idle
+                    value: !lambda |-
+                      int v = ((int)(x + 2.5)) / 5 * 5;
+                      return v < 5 ? 5 : v;
+                - lvgl.label.update:
+                    id: lbl_brightness_idle_val
+                    text:
+                      format: "%d%%"
+                      args: [ '((int)(x + 2.5)) / 5 * 5' ]
+        # ---- On Brightness slider ----
+        - label:
+            x: 10
+            y: 114
+            width: 200
+            height: 18
+            text_color: 0xB0B0B4        # Silver label text
+            text_font: arial_font_14
+            text_align: LEFT
+            text: "On Brightness"
+        - label:
+            id: lbl_brightness_on_val
+            x: 220
+            y: 114
+            width: 80
+            height: 18
+            text_color: 0xDBA85A        # Gold value text
+            text_font: arial_font_14
+            text_align: RIGHT
+            text: "100%"
+        - slider:
+            id: slider_brightness_on
+            x: 30
+            y: 148
+            width: 260
+            height: 10
+            min_value: 1
+            max_value: 100
+            value: 100
+            bg_color: 0x3A4A5A          # Steel blue track
+            bg_opa: COVER
+            indicator:
+              bg_color: 0xDBA85A        # Gold filled portion
+              bg_opa: COVER
+            knob:
+              bg_color: 0x4A5A6A        # Steel blue knob
+              border_color: 0xDBA85A    # Gold knob border
+              border_width: 2
+              radius: 10
+              pad_all: 12
+            on_value:
+              then:
+                - script.execute: timer_reset
+                - number.set:
+                    id: brightness_on
+                    value: !lambda |-
+                      int v = ((int)(x + 2.5)) / 5 * 5;
+                      return v < 5 ? 5 : v;
+                - lvgl.label.update:
+                    id: lbl_brightness_on_val
+                    text:
+                      format: "%d%%"
+                      args: [ '((int)(x + 2.5)) / 5 * 5' ]
+        # ---- Idle Timer slider ----
+        - label:
+            x: 10
+            y: 180
+            width: 200
+            height: 18
+            text_color: 0xB0B0B4        # Silver label text
+            text_font: arial_font_14
+            text_align: LEFT
+            text: "Idle Timer"
+        - label:
+            id: lbl_idle_timer_val
+            x: 220
+            y: 180
+            width: 80
+            height: 18
+            text_color: 0xDBA85A        # Gold value text
+            text_font: arial_font_14
+            text_align: RIGHT
+            text: "30s"
+        - slider:
+            id: slider_idle_timer
+            x: 30
+            y: 214
+            width: 260
+            height: 10
+            min_value: 1
+            max_value: 60
+            value: 30
+            bg_color: 0x3A4A5A          # Steel blue track
+            bg_opa: COVER
+            indicator:
+              bg_color: 0xDBA85A        # Gold filled portion
+              bg_opa: COVER
+            knob:
+              bg_color: 0x4A5A6A        # Steel blue knob
+              border_color: 0xDBA85A    # Gold knob border
+              border_width: 2
+              radius: 10
+              pad_all: 12
+            on_value:
+              then:
+                - script.execute: timer_reset
+                - number.set:
+                    id: idle_timer
+                    value: !lambda |-
+                      int v = ((int)(x + 2.5)) / 5 * 5;
+                      return v < 5 ? 5 : v;
+                - lvgl.label.update:
+                    id: lbl_idle_timer_val
+                    text:
+                      format: "%ds"
+                      args: [ '((int)(x + 2.5)) / 5 * 5' ]
+    - id: page_product_details          # Product details — gold/silver on dark
+      scrollbar_mode: "OFF"
+      scrollable: false
+      bg_color: 0x0D0D0D
+      widgets:
+        # Section Barcode 
+        - obj:
+            id: lbl_barcode_border
+            styles:
+              - style_details_border
+            x: 0
+            y: 45
+            width: 180
+            height: 60            
+        - label:
+            id: lbl_barcode_text
+            styles:
+              - style_details_text
+            x: 10
+            y: 50
+            width: 165
+            height: 16
+            text: "${txt_barcode}"            
+        - label:
+            id: lbl_barcode_val
+            styles:
+              - style_details_val
+            x: 10
+            y: 75
+            width: 165
+            height: 24
+            text: "n/a"
+        # Section Stock
+        - obj:
+            id: lbl_stock_border
+            styles:
+              - style_details_border
+            x: 185
+            y: 45
+            width: 135
+            height: 60
+        - label:
+            id: lbl_stock_text
+            styles:
+              - style_details_text
+            x: 195
+            y: 50
+            width: 105
+            height: 16
+            text: "${txt_stock}"
+        - label:
+            id: lbl_stock_val
+            styles:
+              - style_details_val
+            x: 195
+            y: 75
+            width: 105
+            height: 22
+            text: "n/a"
+        # Section Name
+        - obj:
+            id: lbl_name_border
+            styles:
+              - style_details_border
+            x: 0
+            y: 113
+            width: 320
+            height: 60
+        - label:
+            id: lbl_name_text
+            styles:
+              - style_details_text
+            x: 10
+            y: 118
+            width: 300
+            height: 16
+            text: "${txt_product_name}"
+        - label:
+            id: lbl_name_val
+            styles:
+              - style_details_val
+            x: 10
+            y: 143
+            width: 300
+            height: 24
+            text: "n/a"
+        # Section Description
+        - obj:
+            id: lbl_description_border
+            styles:
+              - style_details_border
+            x: 0
+            y: 181
+            width: 320
+            height: 60
+        - label:
+            id: lbl_description_text
+            styles:
+              - style_details_text
+            x: 10
+            y: 186
+            width: 300
+            height: 16
+            text: "${txt_product_description}"
+        - label:
+            id: lbl_description_val
+            styles:
+              - style_details_val
+            x: 10
+            y: 211
+            width: 300
+            height: 24
+            text: "n/a"
+        # Touch overlay — catches taps anywhere on product details page
+        - obj:
+            width: 100%
+            height: 100%
+            align: TOP_LEFT
+            bg_opa: TRANSP
+            border_width: 0
+            on_click:
+              then:
+                - script.execute: show_mode_selection
+########################################################################################################################
+#  TOUCH DISPLAY DEFINITION
+#########################################################################################################################
+spi:
+  - id: spi_display
+    clk_pin: "${dis_clk_pin_spi}"       # Display board PIN 7
+    mosi_pin: "${dis_mosi_pin_spi}"     # Display board PIN 6
+    miso_pin: "${dis_miso_pin_spi}"     # Display board PIN 9
+    interface: any 
+  - id: spi_touch
+    clk_pin: "${touch_clk_spi}"         # Display board PIN 10  
+    mosi_pin: "${touch_dn_mosi_spi}"    # Display board PIN 12
+    miso_pin: "${touch_do_miso_spi}"    # Display board PIN 13
+display:
+  - platform: mipi_spi
+    id: my_display
+    model: ILI9341
+    
+    spi_id: spi_display
+    cs_pin: "${dis_cs_pin}"             # Display board PIN 3
+    dc_pin: "${dis_dc_pin}"             # Display board PIN 5
+    reset_pin: "${dis_reset_pin}"       # Display board PIN 4
+    
+    auto_clear_enabled: false           # Needs to be false if using LVGL
+    update_interval: 0.5s    
+    invert_colors: false
+    buffer_size: 50%
+    dimensions:    
+      width: 240
+      height: 320
+      offset_width: 0
+      offset_height: 0
+touchscreen:
+  platform: xpt2046
+  display: my_display
+  id: my_touchscreen
+  spi_id: spi_touch
+  cs_pin: "${touch_cs}"                 # Display board PIN 11
+  interrupt_pin: "${touch_irq}"         # Display board PIN 14
+  update_interval: 50ms                 # The interval to check the sensor, should not be relevant, using IRQ
+  threshold: 400                        # The value to detect the touch or release. Defaults to 400.
+  calibration:
+    x_min: 321                          # values from screen calibration
+    x_max: 3941
+    y_min: 193
+    y_max: 3921
+  transform:                            # do not use swap_xy: true this will disable automated touch rotation introduced in LVGL 9.x
+    mirror_x: true
+#########################################################################################################################
+# Scripts
+#########################################################################################################################
+script:
+  # Switch to the printing page, update the labels and control the timer
+  - id: show_page_printing
+    mode: queued
+    max_runs: 1
+    then:
+      - lvgl.label.update:                      # Show printing in top bar
+          id: lbl_top_text
+          text:   "${txt_mode_print}"                  
+      - switch.turn_off: scanning_enable        # Turn the scanner OFF
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_print}"
+      - lvgl.widget.hide: boot_screen
+      - switch.turn_off: idle_mode
+      - lvgl.page.show: page_printing
+      - script.execute: timer_start             # Stop the timer to automatically switch off the scanner
+  # Switch to the config page, update the labels and control the timer
+  - id: show_page_config
+    mode: queued
+    max_runs: 1
+    then:
+      - lvgl.label.update:                      # Show config in top bar
+          id: lbl_top_text
+          text: "${txt_mode_config}"
+      - switch.turn_off: scanning_enable        # Turn the scanner OFF
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_config}"
+      - lvgl.widget.hide: boot_screen
+      - switch.turn_off: idle_mode
+      - lvgl.slider.update:                     # Sync slider with current number entity value
+          id: slider_brightness_idle
+          value: !lambda return (int)id(brightness_idle).state;
+      - lvgl.label.update:
+          id: lbl_brightness_idle_val
+          text:
+            format: "%d%%"
+            args: [ '(int)id(brightness_idle).state' ]
+      - lvgl.slider.update:                     # Sync slider with current number entity value
+          id: slider_brightness_on
+          value: !lambda return (int)id(brightness_on).state;
+      - lvgl.label.update:
+          id: lbl_brightness_on_val
+          text:
+            format: "%d%%"
+            args: [ '(int)id(brightness_on).state' ]
+      - lvgl.slider.update:                     # Sync slider with current number entity value
+          id: slider_idle_timer
+          value: !lambda return (int)id(idle_timer).state;
+      - lvgl.label.update:
+          id: lbl_idle_timer_val
+          text:
+            format: "%ds"
+            args: [ '(int)id(idle_timer).state' ]
+      - lvgl.page.show: page_config
+      - script.execute: timer_start             # Start the timer to automatically switch off
+  # Switch to the choice page, update the labels and control the timer
+  - id: show_mode_selection
+    mode: queued
+    max_runs: 1
+    then:
+      - switch.turn_off: idle_mode               # Set the screen brightness to high
+      - lvgl.label.update:                      # Show printing in top bar
+          id: lbl_top_text
+          text:   "${txt_make_choice}"                  
+      - lvgl.obj.update:                        # Restore gold top bar
+          id: top_bar
+          bg_color: 0xDBA85A
+          bg_grad_color: 0xC89848
+          bg_grad_dir: VER
+      - switch.turn_off: scanning_enable        # Turn the scanner OFF
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_off}"
+      - lvgl.page.show: page_mode_selection
+      - lvgl.widget.hide: boot_screen
+      - switch.turn_off: idle_mode
+      - script.execute: timer_start              # Stop the timer to automatically switch off the scanner
+  # Switch to the add product page, update the labels, switch on the scanner and control the timer      
+  - id: show_add_product
+    mode: queued
+    max_runs: 1    
+    then:
+      - switch.turn_on: scanning_enable         # Turn the scanner ON
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_add}"
+      - lvgl.label.update:
+          id: lbl_top_text
+          text: "${txt_mode_add}"
+      - script.execute: apply_color_add           # Set top bar color from HA config
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_barcode_val
+          text: ""
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_stock_val
+          text: ""
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_name_val
+          text: "${txt_action_scan_a_product}"
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_description_val
+          text: ""
+      - lvgl.widget.hide: boot_screen
+      - switch.turn_off: idle_mode
+      - lvgl.page.show: page_product_details                      
+      - script.execute: timer_start            # Start the timer to automatically switch off the scanner
+  # Switch to the use product page, update the labels, switch on the scanner and control the timer
+  - id: show_use_product
+    mode: queued
+    max_runs: 1    
+    then:
+      - switch.turn_on: scanning_enable        # Turn the scanner ON
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_use}"
+      - lvgl.label.update:
+          id: lbl_top_text
+          text: "${txt_mode_use}"
+      - script.execute: apply_color_use           # Set top bar color from HA config
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_barcode_val
+          text: ""            
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_stock_val
+          text: ""
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_name_val
+          text: "${txt_action_scan_a_product}"
+      - lvgl.label.update:                   # Clear the label value
+          id: lbl_description_val
+          text: ""
+      - lvgl.widget.hide: boot_screen
+      - switch.turn_off: idle_mode
+      - lvgl.page.show: page_product_details
+      - script.execute: timer_start            # Start the timer to automatically switch off the scanner
+  # Switch to the splash page, update the labels, turn of the scanner and control the timer
+  - id: show_splash_screen
+    mode: queued
+    max_runs: 1
+    then:
+      - switch.turn_off: scanning_enable        # Turn the scanner OFF
+      - select.set:
+          id: scanner_mode
+          option: "${txt_mode_off}"
+      - lvgl.obj.update:                        # Restore gold top bar
+          id: top_bar
+          bg_color: 0xDBA85A
+          bg_grad_color: 0xC89848
+          bg_grad_dir: VER
+      - switch.turn_off: idle_mode
+      - lvgl.page.show: page_mode_selection     # The choice page is not shown but allready enabled to avoid the details page to show first
+      - lvgl.widget.show: boot_screen
+      - script.execute: timer_start             # Start the time to dim when expires
+  # Apply the configured color for "Toevoegen" mode to the top bar
+  - id: apply_color_add
+    then:
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Green";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00CC44
+                bg_grad_color: 0x009933
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Blue";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x2196F3
+                bg_grad_color: 0x1565C0
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Red";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xF44336
+                bg_grad_color: 0xB71C1C
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Orange";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xFF9800
+                bg_grad_color: 0xE65100
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Purple";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x9C27B0
+                bg_grad_color: 0x6A1B9A
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Gold";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xDBA85A
+                bg_grad_color: 0xC89848
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Cyan";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00BCD4
+                bg_grad_color: 0x00838F
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_add_mode).current_option() == "Pink";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xE91E63
+                bg_grad_color: 0xAD1457
+                bg_grad_dir: VER
+  # Apply the configured color for "Gebruiken" mode to the top bar
+  - id: apply_color_use
+    then:
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Green";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00CC44
+                bg_grad_color: 0x009933
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Blue";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x2196F3
+                bg_grad_color: 0x1565C0
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Red";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xF44336
+                bg_grad_color: 0xB71C1C
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Orange";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xFF9800
+                bg_grad_color: 0xE65100
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Purple";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x9C27B0
+                bg_grad_color: 0x6A1B9A
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Gold";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xDBA85A
+                bg_grad_color: 0xC89848
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Cyan";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00BCD4
+                bg_grad_color: 0x00838F
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_use_mode).current_option() == "Pink";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xE91E63
+                bg_grad_color: 0xAD1457
+                bg_grad_dir: VER
+  # Start the timer to switch to OFF mode when idle
+  - id: timer_start                             
+    then:
+      - lambda: |-
+          id(timer_remaining) = id(idle_timer).state;
+          id(timer_running) = true;
+      - lvgl.label.update:                      # Show the remaining time top left
+          id: lbl_idletimer      
+          text: 
+            !lambda |-
+            return std::to_string((int)id(timer_remaining)) + "s";
+      - lvgl.widget.show: lbl_idletimer         # Enable the widget that shows remaining time
+      - logger.log:
+          level: INFO
+          format: "Timer is started (%ds)"
+          args: [ 'id(timer_remaining)']
+  # Restart the timer to switch to OFF mode when idle
+  - id: timer_reset                             
+    then:
+      - lambda: |-
+          id(timer_remaining) = id(idle_timer).state;
+          id(timer_running) = true;
+      - lvgl.widget.show: lbl_idletimer
+      - logger.log:
+          level: INFO
+          format: "Timer is re-started (%ds)"
+          args: [ 'id(timer_remaining)']
+  # Stop the timer to switch to OFF mode when idle
+  - id: timer_stop                             
+    then:
+      - lambda: |-
+          id(timer_running) = false;
+      - lvgl.widget.hide: lbl_idletimer
+      - logger.log: 
+          level: INFO
+          format: "Timer is stopped"
+#########################################################################################################################
+# Barcode scanner GM67  
+#########################################################################################################################
+uart:  
+  id: scanner                                  # Define the serial connection to the scanner
+  rx_pin: "${uart_rx_pin_scan}"
+  tx_pin: "${uart_tx_pin_scan}"
+  baud_rate: 9600
+  debug:
+    direction: RX
+    dummy_receiver: true
+    after:
+      delimiter: "\r"
+    sequence:
+        - if:                                  # If a supported 14, 13, 12 or 8 digit numeric barcode was scanned
+            condition:
+              lambda: |-
+                std::string str(bytes.begin(), bytes.end()); 
+                if ( 
+                  (strlen(str.c_str()) == 14 and str.substr(0, 13).find_first_not_of("0123456789") == std::string::npos) or // is 13 digit EAN-13 barcode
+                  (strlen(str.c_str()) == 13 and str.substr(0, 12).find_first_not_of("0123456789") == std::string::npos) or // is 12 digit UPC-A barcode
+                  (strlen(str.c_str()) == 9 and str.substr(0, 8).find_first_not_of("0123456789") == std::string::npos) or   // is 8 digit EAN-8 or UPC-E barcode
+                  (strlen(str.c_str()) == 15 and str.substr(0, 14).find_first_not_of("0123456789") == std::string::npos)    // is 14 digit ITF-14 barcode
+                ) { 
+                  return true; 
+                } else {
+                  return false;
+                } 
+            then:                              # Log the received barcode and update the last_barcode and last_scan entities
+              - logger.log: 
+                  level: INFO
+                  format: "A PRODUCT BARCODE was scanned "
+              - lambda: |-
+                  UARTDebug::log_string(direction, bytes);
+                  std::string str(bytes.begin(), bytes.end());
+                  id(last_barcode).publish_state(str.c_str()); 
+                  id(last_scan).trigger("barcode_scanned"); 
+              - homeassistant.event:                       # Send a HA event with the scanned product barcode
+                  # event: esphome.scanner_product
+                  event: "${product_barcode_scanned}"
+                  data_template: 
+                    barcode: "{{ scanned_barcode }}"
+                    device: "${name}"
+                  variables:
+                    scanned_barcode: !lambda |-
+                        std::string str(bytes.begin(), bytes.end()); 
+                        return str.c_str(); 
+              - script.execute: timer_reset    # Reset the timer to switch to OFF mode, the timer is running when the scanner is ON
+        - if:                                  # If a special QR code was scanned which contains text starting "GENERIC:"
+            condition:
+              lambda: |-
+                std::string str(bytes.begin(), bytes.end());
+                if (str.substr(0, 8) == "GENERIC:") { // starts with "GENERIC:"
+                  return true; 
+                } else {
+                  return false;
+                } 
+            then:                              # Log the received barcode and update the last_barcode and last_scan entities
+              - logger.log: 
+                  level: INFO
+                  format: "A SPECIAL QR CODE was scanned "
+              - lambda: |-
+                  UARTDebug::log_string(direction, bytes);
+                  std::string str(bytes.begin(), bytes.end());
+                  id(last_barcode).publish_state(str.substr(8).c_str()); // Get rid of the "GENERIC:" from the front
+                  id(last_scan).trigger("barcode_scanned");
+              - homeassistant.event:           # Send a HA event with the scanned product barcode
+                  # event: esphome.scanner_generic
+                  event: "${generic_barcode_scanned}"
+                  data_template: 
+                    product: "{{ scanned_product }}"
+                    device: "${name}"
+                  variables:
+                    scanned_product: !lambda |-
+                        std::string str(bytes.begin(), bytes.end()); 
+                        return str.substr(8).c_str(); 
+              - script.execute: timer_reset    # Reset the timer to switch to OFF mode, the timer is running when the scanner is ON
+#########################################################################################################################
+# Expose scanner module config to Home Assistant
+#########################################################################################################################
+select:
+  - platform: template                         # Scanner configuration - scanning trigger mode of the GM67
+    name: "Trigger Mode"
+    id: scan_mode
+    optimistic: true
+    icon: mdi:auto-mode
+    entity_category: CONFIG
+    options:                                   
+      - Button Holding
+      - Button Trigger
+      - Continuous Scanning
+      - Automatic Induction
+      - Host
+    initial_option: Automatic Induction        # For the scanner typically the Automatic Induction is used. Moving an onject infront of the scanner starts scanning.
+    restore_value: true                        # The scanner is enabled/disabled by picking an operation mode (ADD/USE/OFF)
+    on_value:
+      - if:
+          condition:
+            lambda: 'if (x == "Button Holding") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x00, 0xFE, 0x9D]
+      - if:
+          condition:
+            lambda: 'if (x == "Button Trigger") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x02, 0xFE, 0x9B]
+      - if:
+          condition:
+            lambda: 'if (x == "Continuous Scanning") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x04, 0xFE, 0x99]
+      - if:
+          condition:
+            lambda: 'if (x == "Automatic Induction") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x09, 0xFE, 0x94]
+      - if:
+          condition:
+            lambda: 'if (x == "Host") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x08, 0xFE, 0x95]
+  - platform: template                         # Scanner configuration - Set Buzzer Volume
+    name: "Buzzer Volume"
+    id: buzzer_volume
+    optimistic: true
+    icon: mdi:volume-high
+    entity_category: CONFIG
+    options:
+      - 'Off'
+      - Low
+      - Medium
+      - High
+    initial_option: Medium
+    restore_value: true
+    on_value:
+      - if:                                    # Set the buzzer Off
+          condition:
+            lambda: 'if (x == "Off") { return true; } else { return false; }'
+          then:
+            - uart.write: # Turn off
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x38, 0x00, 0xFE, 0xEF]
+      - if:                                    # Set the buzzer volume to Low
+          condition:
+            lambda: 'if (x == "Low") { return true; } else { return false; }'
+          then:
+            - uart.write:                      # Turn on
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x38, 0x01, 0xFE, 0xEE] 
+            - uart.write:                      # Set low
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8C, 0x02, 0xFE, 0x99]
+      - if:                                    # Set the buzzer volume to Medium
+          condition:
+            lambda: 'if (x == "Medium") { return true; } else { return false; }'
+          then:
+            - uart.write:                      # Turn on
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x38, 0x01, 0xFE, 0xE]
+            - uart.write:                      # Set medium
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8C, 0x01, 0xFE, 0x9A]
+      - if:                                    # Set the buzzer volume to High
+          condition:
+            lambda: 'if (x == "High") { return true; } else { return false; }'
+          then:
+            - uart.write:                      # Turn on
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x38, 0x01, 0xFE, 0xE]
+            - uart.write:                      # Set high
+                id: scanner
+                data: [0x07, 0xC6, 0x04, 0x08, 0x00, 0x8C, 0x00, 0xFE, 0x9B]
+  
+  - platform: template                         # Scanner configuration - Configure Scanning Light behavior
+    name: "Scanning Light"
+    id: scanning_light
+    optimistic: true
+    icon: mdi:lightbulb-on
+    entity_category: CONFIG
+    options:
+      - On When Reading
+      - Always On
+      - Always Off
+    initial_option: On When Reading            # To improve visibility, the light is turned on when scanning
+    restore_value: true
+    on_value:
+      - if:                                    # Scanning light ON When Reading
+          condition:
+            lambda: 'if (x == "On When Reading") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x02, 0x00, 0xFE, 0x32]
+      - if:                                     # Scanning light Always On
+          condition:
+            lambda: 'if (x == "Always On") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x02, 0x01, 0xFE, 0x31]
+      - if:                                     # Scanning light Always Off
+          condition:
+            lambda: 'if (x == "Always Off") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x02, 0x02, 0xFE, 0x30]
+  
+  - platform: template                          # Scanner configuration - Configure Collimation behavior
+    name: "Collimation"
+    id: collimation
+    optimistic: true
+    icon: mdi:line-scan
+    entity_category: CONFIG
+    options:
+      - On When Reading
+      - Always On
+      - Always Off
+    initial_option: On When Reading             # Collimation is turned on when scanning to make positioning of the barcode easier
+    restore_value: true
+    on_value:
+      - if:                                     # Collimation On When Reading
+          condition:
+            lambda: 'if (x == "On When Reading") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x03, 0x00, 0xFE, 0x31]
+      - if:                                     # Collimation Always On
+          condition:
+            lambda: 'if (x == "Always On") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x03, 0x01, 0xFE, 0x30]
+      - if:                                     # Collimation Always Off
+          condition:
+            lambda: 'if (x == "Always Off") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x03, 0x02, 0xFE, 0x2F]
+  
+  - platform: template                          # Configure Same Code Delay
+    name: "Same Code Delay"
+    id: same_code_delay
+    optimistic: true
+    icon: mdi:repeat-variant
+    entity_category: CONFIG
+    options:
+      - 0.5s
+      - 1s
+      - 3s
+      - 5s
+      - 7s 
+      - No Repeat
+    initial_option: 3s
+    restore_value: true
+    on_value:
+      - if:                                     # Set to 0.5s
+          condition:
+            lambda: 'if (x == "0.5s") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF3, 0x03, 0x05, 0xFE, 0x2B]
+      - if:                                     # Set to  1s
+          condition:
+            lambda: 'if (x == "1s") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xC9, 0x01, 0xFD, 0x6A]
+      - if:                                     # Set to  3s
+          condition:
+            lambda: 'if (x == "3s") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xC9, 0x03, 0xFD, 0x68]
+      - if:                                     # Set to  5s
+          condition:
+            lambda: 'if (x == "5s") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xC9, 0x05, 0xFD, 0x66]
+      - if:                                     # Set to  7s
+          condition:
+            lambda: 'if (x == "7s") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xC9, 0x07, 0xFD, 0x64]
+      - if:                                     # Set to  No Repeat
+          condition:
+            lambda: 'if (x == "No Repeat") { return true; } else { return false; }'
+          then:
+            - uart.write: 
+                id: scanner
+                data: [0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0xC9, 0x09, 0xFD, 0x62]
+  
+  - platform: template                          # Determine the scanner mode
+    name: "Scanner mode"
+    id: scanner_mode
+    optimistic: true
+    icon: mdi:line-scan
+    options:
+      - "${txt_mode_add}"                       # Add a purchased product to inventory
+      - "${txt_mode_use}"                       # Remove a product from the inventory
+      - "${txt_mode_off}"                       # Scanner is off
+      - "${txt_mode_print}"
+      - "${txt_mode_config}"
+    initial_option: "${txt_mode_off}"
+    restore_value: true
+
+  - platform: template                          # Configurable startup mode from HA
+    name: "Startup Mode"
+    id: startup_mode
+    optimistic: true
+    icon: mdi:rocket-launch
+    entity_category: config
+    options:
+      - "${txt_make_choice}"
+      - "${txt_mode_add}"
+      - "${txt_mode_use}"
+    initial_option: "${txt_make_choice}"
+    restore_value: true
+
+  - platform: template                          # Top bar color for "Toevoegen" mode
+    name: "Color Add Mode"
+    id: color_add_mode
+    optimistic: true
+    icon: mdi:palette
+    entity_category: config
+    options:
+      - Green
+      - Blue
+      - Red
+      - Orange
+      - Purple
+      - Gold
+      - Cyan
+      - Pink
+    initial_option: Green
+    restore_value: true
+
+  - platform: template                          # Top bar color for "Gebruiken" mode
+    name: "Color Use Mode"
+    id: color_use_mode
+    optimistic: true
+    icon: mdi:palette
+    entity_category: config
+    options:
+      - Green
+      - Blue
+      - Red
+      - Orange
+      - Purple
+      - Gold
+      - Cyan
+      - Pink
+    initial_option: Blue
+    restore_value: true
