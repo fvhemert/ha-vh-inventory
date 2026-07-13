@@ -385,13 +385,20 @@ display:
         it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
       }
       else if(id(screen_mode).state == "result") {
-        std::string printout=id(product_name).state.c_str();
-        int clength = printout.length();
-        id(scroll_length) = clength * 15;
-        it.print(id(scroll_x), 5, id(arial_font_18), printout.c_str());
-        // multiplication factor (in this case 10) to be determined with trial and error based on your font width
-        std::string line2 = "Voorraad: " + std::string(id(product_stock).state.c_str());
-        it.print(0, 34, id(arial_font_24), line2.c_str());
+        // Top line: product name in the large font; bottom line: stock in the small font.
+        // Each line scrolls only when it is wider than the 128px screen; short lines stay put.
+        std::string name = id(product_name).state.c_str();
+        std::string stock = "Voorraad: " + std::string(id(product_stock).state.c_str());
+        int wname = name.length() * 15;         // approx pixel width, large font (arial_font_24)
+        int wstock = stock.length() * 10;        // approx pixel width, small font (arial_font_18)
+        int maxw = 0;                            // shared scroll length = widest overflowing line
+        if (wname > 128 && wname > maxw) { maxw = wname; }
+        if (wstock > 128 && wstock > maxw) { maxw = wstock; }
+        id(scroll_length) = maxw;
+        int xname = (wname > 128) ? id(scroll_x) : 0;
+        int xstock = (wstock > 128) ? id(scroll_x) : 0;
+        it.print(xname, 5, id(arial_font_24), name.c_str());
+        it.print(xstock, 40, id(arial_font_18), stock.c_str());
       }
        else {
         it.print(0, 4, id(arial_font_18), "Unknown Error");
