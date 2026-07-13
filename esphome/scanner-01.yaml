@@ -35,6 +35,11 @@
 #     1.12    Idle Timer now works as an auto-off: starts when the scanner is switched on,
 #               resets on every scan, stops when switched off, and powers the scanner off when
 #               it expires (renamed the standby_timer script to idle_off_timer).
+#     1.13    Defined clear device states and exposed a "State" text sensor (CONNECTING /
+#               STANDBY / READY / SEARCHING; UNAVAILABLE shown by HA when offline). Fixed the
+#               internal screen_mode naming inversion: "standby" now means the barcode module is
+#               off ("Uit"), "ready" means armed to scan; "scanned" -> SEARCHING while a barcode
+#               is looked up, returning to READY when the result is shown.
 #########################################################################################################################
 # NOTE: This device differs from barcode-01 / barcode-02 in that it has a small monochrome OLED (no touchscreen),
 #       two hardware buttons with LEDs, and a built-in thermal printer. Add/Use mode and the LVGL page system used
@@ -44,7 +49,7 @@ substitutions:
   name: "scanner-01"
   friendly_name: "SCANNER-01"
   project_name: 'Boodschappen scanner'
-  project_version: '1.12'
+  project_version: '1.13'
   # Scanner mode labels (must match barcode-01/02 so HA maps them to Add/Use)
   txt_mode_add: 'Toevoegen'
   txt_mode_use: 'Gebruiken'
@@ -144,12 +149,12 @@ api:
         then:
           - text_sensor.template.publish:
               id: screen_mode
-              state: "standby"
+              state: "ready"
           - script.execute: idle_off_timer     # Scanner is on -> start the idle auto-off countdown
         else:
           - text_sensor.template.publish:
               id: screen_mode
-              state: "scanoff"
+              state: "standby"
 # When client disconnected set the status back to connecting
   on_client_disconnected:
     - text_sensor.template.publish:
@@ -234,6 +239,20 @@ text_sensor:
     id: screen_mode
     name: Screen Mode
     internal: true
+    on_value:                                  # Derive the exposed "State" sensor from the internal screen_mode
+      then:
+        - text_sensor.template.publish:
+            id: device_state
+            state: !lambda |-
+              if (x == "connecting") return {"CONNECTING"};
+              if (x == "standby")    return {"STANDBY"};
+              if (x == "scanned")    return {"SEARCHING"};
+              // "ready" and "result" are both part of the READY lifecycle state
+              return {"READY"};
+  - platform: template                         # Exposed lifecycle state: CONNECTING / STANDBY / READY / SEARCHING
+    id: device_state                           # (UNAVAILABLE is shown automatically by HA when the device is offline)
+    name: "State"
+    icon: mdi:state-machine
   - platform: template                         # Contains the last barcode that was scanned
     id: last_barcode
     name: Barcode read
@@ -411,7 +430,7 @@ display:
         // multiplication factor (in this case 10) to be determined with trial and error based on your font width
         it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
       }
-      else if(id(screen_mode).state == "standby") {
+      else if(id(screen_mode).state == "ready") {
         it.print(0, 0, id(icons_32), "\U0000f85c");
         it.print(40, 5, id(arial_font_24), id(scanner_mode).current_option().c_str());
 
@@ -425,7 +444,7 @@ display:
         it.print(0, 0, id(icons_32), "\U0000e8b6");
         it.print(0, 30, id( arial_font_24), "Zoeken");
       }
-      else if(id(screen_mode).state == "scanoff") {
+      else if(id(screen_mode).state == "standby") {
         it.print(0, 0, id(icons_32), "\U0000e8ac");
         it.print(40, 6, id( arial_font_24), "Uit");
 
@@ -867,7 +886,7 @@ switch:
       - light.turn_on: led_left_light          # Left LED on = scanner enabled
       - text_sensor.template.publish:
           id: screen_mode
-          state: "standby"
+          state: "ready"
       - script.execute: idle_off_timer         # Entering Add/Use mode -> start the idle auto-off timer
     turn_off_action:
       - uart.write: 
@@ -876,5 +895,5 @@ switch:
       - light.turn_off: led_left_light         # Left LED off = scanner disabled
       - text_sensor.template.publish:
           id: screen_mode
-          state: "scanoff"
+          state: "standby"
       - script.stop: idle_off_timer            # Scanner switched off -> stop the idle timer
