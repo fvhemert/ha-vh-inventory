@@ -59,8 +59,8 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
   touchscreen scanners (Barcode-01 / Barcode-02) that feed the system: hardware, build
   environment, wiring, user flow, and GM67 configuration.
 - 🖨️ **[Small screen barcode scanner with printer](docs/SCANNER-SMALL.md)** — an
-  ESP8266/ESPHome scanner with an OLED display and integrated thermal printer (scanner-01).
-  *Work in progress.*
+  ESP8266/ESPHome scanner with an OLED display and integrated thermal printer (scanner-01):
+  photo, controls, user flow, and device state model.
 
 ## Repository layout
 
