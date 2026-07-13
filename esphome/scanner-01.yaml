@@ -40,6 +40,9 @@
 #               internal screen_mode naming inversion: "standby" now means the barcode module is
 #               off ("Uit"), "ready" means armed to scan; "scanned" -> SEARCHING while a barcode
 #               is looked up, returning to READY when the result is shown.
+#     1.14    READY screen: the mode line (Toevoegen/Gebruiken) now scrolls when too long to fit
+#               instead of being cut off, sharing the scroll with the "Scan een product" line.
+#               The barcode icon is masked + redrawn on top so the scrolling text slides behind it.
 #########################################################################################################################
 # NOTE: This device differs from barcode-01 / barcode-02 in that it has a small monochrome OLED (no touchscreen),
 #       two hardware buttons with LEDs, and a built-in thermal printer. Add/Use mode and the LVGL page system used
@@ -75,7 +78,7 @@ substitutions:
   name: "scanner-01"
   friendly_name: "SCANNER-01"
   project_name: 'Boodschappen scanner'
-  project_version: '1.13'
+  project_version: '1.14'
   # Scanner mode labels (must match barcode-01/02 so HA maps them to Add/Use)
   txt_mode_add: 'Toevoegen'
   txt_mode_use: 'Gebruiken'
@@ -457,14 +460,23 @@ display:
         it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
       }
       else if(id(screen_mode).state == "ready") {
-        it.print(0, 0, id(icons_32), "\U0000f85c");
-        it.print(40, 5, id(arial_font_24), id(scanner_mode).current_option().c_str());
-
-        std::string printout="Scan een product";
-        int clength = printout.length();
-        id(scroll_length) = clength * 15;
-        // multiplication factor (in this case 10) to be determined with trial and error based on your font width
-        it.print(id(scroll_x), 30, id(arial_font_24), printout.c_str());
+        // Both lines scroll when they are too wide to fit. Line 1 (mode) has the icon on its
+        // left so its available width is 128-40=88px; line 2 ("Scan een product") uses the full
+        // 128px. They share the single scroll_x; scroll_length = widest overflowing line.
+        std::string mode = id(scanner_mode).current_option();
+        std::string scan = "Scan een product";
+        int wmode = mode.length() * 15;          // approx pixel width, large font (arial_font_24)
+        int wscan = scan.length() * 15;
+        int maxw = 0;
+        if (wmode > 88  && wmode > maxw) { maxw = wmode; }
+        if (wscan > 128 && wscan > maxw) { maxw = wscan; }
+        id(scroll_length) = maxw;
+        int xmode = (wmode > 88)  ? id(scroll_x) : 40;   // scroll if it overflows, else sit next to the icon
+        int xscan = (wscan > 128) ? id(scroll_x) : 0;
+        it.print(xmode, 5, id(arial_font_24), mode.c_str());
+        it.print(xscan, 30, id(arial_font_24), scan.c_str());
+        it.filled_rectangle(0, 0, 40, 30, COLOR_OFF);    // erase whatever scrolled under the icon on line 1
+        it.print(0, 0, id(icons_32), "\U0000f85c");      // redraw the barcode-reader icon on top
       }
       else if(id(screen_mode).state == "scanned") {
         it.print(0, 0, id(icons_32), "\U0000e8b6");
