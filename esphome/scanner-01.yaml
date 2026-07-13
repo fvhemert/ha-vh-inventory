@@ -25,6 +25,10 @@
 #               so the VH Inventory backend can push the resolved product to the OLED. The "result"
 #               screen now shows the product name (scrolling) and "Voorraad: <qty>" instead of staying
 #               on "Zoeken".
+#     1.10    Left hardware button now turns the scanner on/off (toggles "Scanning Enabled"); the
+#               left LED follows scanner power (on = enabled). scanner_mode reduced to Toevoegen/
+#               Gebruiken (Off removed) and the right LED indicates the mode (off = Add, on = Use).
+#               Mode and power are now independent.
 #########################################################################################################################
 # NOTE: This device differs from barcode-01 / barcode-02 in that it has a small monochrome OLED (no touchscreen),
 #       two hardware buttons with LEDs, and a built-in thermal printer. Add/Use mode and the LVGL page system used
@@ -34,11 +38,10 @@ substitutions:
   name: "scanner-01"
   friendly_name: "SCANNER-01"
   project_name: 'Boodschappen scanner'
-  project_version: '1.09'
+  project_version: '1.10'
   # Scanner mode labels (must match barcode-01/02 so HA maps them to Add/Use)
   txt_mode_add: 'Toevoegen'
   txt_mode_use: 'Gebruiken'
-  txt_mode_off: 'Off'
   # I2C-Pins Display
   display_i2c_sda: GPIO04
   display_i2c_scl: GPIO05
@@ -180,7 +183,7 @@ binary_sensor:
               - select.set:
                   id: scanner_mode
                   option: "${txt_mode_add}"
-  - platform: gpio                             # Left hardware button
+  - platform: gpio                             # Left hardware button - short press turns the scanner on/off
     name: "Left button"
     pin:
       number: "${button_left_pin}"
@@ -188,6 +191,9 @@ binary_sensor:
       mode:
         input: true
         pullup: true
+    on_press:
+      then:
+        - switch.toggle: scanning_enable       # Left LED follows scanning_enable (see the switch actions)
 button:
   - platform: restart                          # Button to reset the board from Home Assistant
     name: "Restart"
@@ -516,6 +522,7 @@ uart:
 select:
   # Add/Use scanner mode - mirrors barcode-01/02. HA reads select.scanner_01_scanner_mode
   # (Toevoegen -> Add, Gebruiken -> Use). Toggled with the right hardware button.
+  # On/off is handled separately by the left button via the "Scanning Enabled" switch.
   - platform: template
     name: "Scanner mode"
     id: scanner_mode
@@ -524,30 +531,15 @@ select:
     options:
       - "${txt_mode_add}"                      # Add a purchased product to inventory
       - "${txt_mode_use}"                      # Remove a product from the inventory
-      - "${txt_mode_off}"                      # Scanner is off
-    initial_option: "${txt_mode_off}"
+    initial_option: "${txt_mode_add}"
     restore_value: true
     on_value:
-      - if:                                    # Add mode: scanner ON, left LED on
-          condition:
-            lambda: 'return x == "${txt_mode_add}";'
-          then:
-            - switch.turn_on: scanning_enable
-            - light.turn_on: led_left_light
-            - light.turn_off: led_right_light
-      - if:                                    # Use mode: scanner ON, right LED on
+      - if:                                    # Right LED indicates the mode: off = Add, on = Use
           condition:
             lambda: 'return x == "${txt_mode_use}";'
           then:
-            - switch.turn_on: scanning_enable
-            - light.turn_off: led_left_light
             - light.turn_on: led_right_light
-      - if:                                    # Off mode: scanner OFF, both LEDs off
-          condition:
-            lambda: 'return x == "${txt_mode_off}";'
-          then:
-            - switch.turn_off: scanning_enable
-            - light.turn_off: led_left_light
+          else:
             - light.turn_off: led_right_light
   # The scanning trigger mode of the GM67
   - platform: template
@@ -810,6 +802,7 @@ switch:
       - uart.write: 
           id: scanner
           data: [0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F]
+      - light.turn_on: led_left_light          # Left LED on = scanner enabled
       - text_sensor.template.publish:
           id: screen_mode
           state: "standby"
@@ -817,6 +810,7 @@ switch:
       - uart.write: 
           id: scanner
           data: [0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E]
+      - light.turn_off: led_left_light         # Left LED off = scanner disabled
       - text_sensor.template.publish:
           id: screen_mode
           state: "scanoff"
