@@ -5,7 +5,8 @@
 > VH-Inventory system. Their firmware lives in [`esphome/`](../esphome) and their
 > hardware reference material in [`hardware/`](../hardware). This is one of several
 > scanner types VH-Inventory supports (see the
-> [Product Manual](PRODUCT-MANUAL.md) for the handheld MQTT scanner and manual entry).
+> [Product Manual](PRODUCT-MANUAL.md) for the handheld MQTT scanner and manual entry,
+> and the [Small screen barcode scanner with printer](SCANNER-SMALL.md) for scanner-01).
 
 ## Overview
 

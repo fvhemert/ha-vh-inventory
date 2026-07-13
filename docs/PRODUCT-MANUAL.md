@@ -303,6 +303,9 @@ Their firmware lives in [`esphome/`](../esphome), hardware reference material in
 [`hardware/`](../hardware), and full documentation (build environment, wiring, user flow,
 and GM67 configuration) in the **[Large screen barcode scanners guide](SCANNER.md)**.
 
+A second scanner family — a **[Small screen barcode scanner with printer](SCANNER-SMALL.md)**
+(scanner-01, ESP8266 + OLED + thermal printer) — is also supported and documented separately.
+
 ---
 
 ## 8. History (audit log)

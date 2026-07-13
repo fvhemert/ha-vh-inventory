@@ -58,6 +58,9 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
 - 📡 **[Large screen barcode scanners](docs/SCANNER.md)** — the two ESP32/ESPHome
   touchscreen scanners (Barcode-01 / Barcode-02) that feed the system: hardware, build
   environment, wiring, user flow, and GM67 configuration.
+- 🖨️ **[Small screen barcode scanner with printer](docs/SCANNER-SMALL.md)** — an
+  ESP8266/ESPHome scanner with an OLED display and integrated thermal printer (scanner-01).
+  *Work in progress.*
 
 ## Repository layout
 
