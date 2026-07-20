@@ -119,6 +119,9 @@ All configuration via raw UART hex commands:
 - **Events** sent on scan: `esphome.scanner_product` / `esphome.scanner_generic`.
 - **Text entities** receive product info back from HA (name, description, stock).
 - **Switches** for print triggers and idle mode.
+- **Info popup** (Barcode-01) exposes a `Popup` switch, `Popup Message` / `Popup Header`
+  text fields, a `Color Info Popup` select, and `Popup Yes` / `Popup No` switches (see
+  [Info Popup](#info-popup-barcode-01)).
 - **Number entities** for brightness and timer settings (persisted, exposed in HA).
 - **Select entities** expose scanner hardware configuration to HA.
 - **OTA** and **captive portal** for maintenance.
@@ -126,6 +129,33 @@ All configuration via raw UART hex commands:
 > 📦 The Home Assistant automations, scripts, and dashboards that process the scanned
 > barcodes and manage inventory are part of **this** repository (VH-Inventory). See the
 > [Installation Guide](INSTALLATION.md) and [Product Manual](PRODUCT-MANUAL.md).
+
+### Info Popup (Barcode-01)
+
+An HA-controlled full-screen overlay for interactive prompts (e.g. confirmations from
+VH-Inventory automations). Added in firmware **v0.7.0**.
+
+- **Overlay** — Covers the full screen below the top bar (or the whole screen when shown
+  from the splash screen). Displayed on top of whatever page is currently active.
+- **Show/hide** — Toggled by the **Popup** switch. Turning it off restores the exact
+  screen (and top-bar title/color) that was showing before the popup appeared.
+- **Message & header** — The body text is set via the **Popup Message** text entity; while
+  shown, the top-bar title is temporarily replaced with the **Popup Header** text entity.
+- **Top-bar color** — While shown, the top bar temporarily uses the color from the
+  **Color Info Popup** select (same option list as *Color Add Mode* / *Color Use Mode*),
+  restored on hide.
+- **Buttons** — Two buttons, **Ja** (Yes) and **Nee** (No). Pressing one turns on the
+  matching **Popup Yes** / **Popup No** switch so HA automations can read the response;
+  HA turns them back off to reset the highlight.
+
+| Entity | Type | Purpose |
+|--------|------|---------|
+| `switch.barcode_01_popup` | switch | Show / hide the popup |
+| `text.barcode_01_popup_message` | text | Body message shown in the popup |
+| `text.barcode_01_popup_header` | text | Temporary top-bar title while shown |
+| `select.barcode_01_color_info_popup` | select | Temporary top-bar color while shown |
+| `switch.barcode_01_popup_yes` | switch | Set on when **Ja** is pressed (HA resets) |
+| `switch.barcode_01_popup_no` | switch | Set on when **Nee** is pressed (HA resets) |
 
 ## Hardware Reference
 

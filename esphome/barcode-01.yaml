@@ -8,12 +8,15 @@
 #     0.5.5   Changes to support new LVGL support for rotation
 #     0.6.0   Updated and moved to production server
 #     0.6.1   Added device identifier to HA events
+#     0.7.0   Added HA-controlled info popup (fullscreen overlay w/ Ja/Nee buttons readable from HA,
+#             configurable message + header text, temporary top-bar title/color via "Color Info Popup");
+#             migrated deprecated image: block to the new image 'platform: file' format
 #########################################################################################################################
 substitutions:
   name: "barcode-01"
   friendly_name: "barcode-01"
   project_name: 'Boodschappen scanner'
-  project_version: '0.6.1'
+  project_version: '0.7.0'
   # Ports for display
   dis_cs_pin: GPIO05        # Display board PIN 3
   dis_reset_pin: GPIO22     # Display board PIN 4
@@ -47,6 +50,9 @@ substitutions:
   txt_mode_print_shoppinglist: 'Boodschappen'
   txt_mode_print_inventory: 'Voorraad'
   txt_mode_config: 'Config'  
+  # Popup button labels
+  txt_popup_yes: 'Ja'
+  txt_popup_no: 'Nee'
   # Events triggered by scanning
   product_barcode_scanned: 'esphome.scanner_product'
   generic_barcode_scanned: 'esphome.scanner_generic'
@@ -127,6 +133,19 @@ globals:
     type: int
     restore_value: no
   - id: timer_running                          # Indicates if the idle timer is running
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: popup_prev_title                       # Saved top bar title, restored when the popup hides
+    type: std::string
+    restore_value: no
+  - id: popup_prev_bg                          # Saved top bar background color, restored when the popup hides
+    type: lv_color_t
+    restore_value: no
+  - id: popup_prev_grad                        # Saved top bar gradient color, restored when the popup hides
+    type: lv_color_t
+    restore_value: no
+  - id: popup_topbar_modified                  # True when the popup changed the top bar (so it gets restored on hide)
     type: bool
     restore_value: no
     initial_value: "false"
@@ -272,6 +291,93 @@ switch:
           id: scanner
           data: [0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E]
       - lvgl.widget.hide: lbl_scanner_status   # Remove the scanner icon from the top bar
+  - platform: template                         # HA-controlled popup visibility (turn ON from an automation to show it)
+    name: "Popup"
+    id: sw_popup
+    icon: mdi:message-alert
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:                                # Show the popup on top of whatever page is currently active
+      - switch.turn_off: sw_popup_yes          # Clear any previous answer before showing
+      - switch.turn_off: sw_popup_no
+      - lvgl.label.update:                     # Make sure the current HA message text is shown
+          id: lbl_popup_msg
+          text:
+            format: "%s"
+            args: [ 'id(popup_message).state.c_str()' ]
+      - if:
+          condition:                           # boot_screen HIDDEN -> a normal page is showing -> the top bar is visible
+            lambda: 'return lv_obj_has_flag(id(boot_screen), LV_OBJ_FLAG_HIDDEN);'
+          then:                                # Top bar present: leave a gap below it and re-theme the bar
+            - lambda: |-                       # Snapshot the current top bar title + colors so they can be restored
+                id(popup_prev_title) = lv_label_get_text(id(lbl_top_text));
+                id(popup_prev_bg) = lv_obj_get_style_bg_color(id(top_bar), LV_PART_MAIN);
+                id(popup_prev_grad) = lv_obj_get_style_bg_grad_color(id(top_bar), LV_PART_MAIN);
+                id(popup_topbar_modified) = true;
+                lv_obj_set_y(id(popup_screen), 42);      // Below the 38px top bar, with a small gap (no overlap)
+                lv_obj_set_height(id(popup_screen), 196);
+            - lvgl.label.update:               # Temporary top bar title from the "Popup Header" field
+                id: lbl_top_text
+                text:
+                  format: "%s"
+                  args: [ 'id(popup_header).state.c_str()' ]
+            - script.execute: apply_color_info # Temporary top bar color from the "Color Info Popup" select
+          else:                                # Splash screen: no top bar, popup covers the full screen
+            - lambda: |-
+                id(popup_topbar_modified) = false;
+                lv_obj_set_y(id(popup_screen), 0);       // Cover the whole screen (no top bar on the splash)
+                lv_obj_set_height(id(popup_screen), 240);
+      - switch.turn_off: idle_mode             # Full brightness while the popup is up
+      - script.execute: timer_stop             # Prevent idle auto-dim / auto-return while the popup is shown
+      - lvgl.widget.show: popup_screen         # popup_screen lives on the top_layer -> drawn above every page
+    on_turn_off:                               # Hide the popup -> the underlying page becomes visible again
+      - lvgl.widget.hide: popup_screen
+      - if:
+          condition:                           # Only restore the top bar if the popup actually changed it
+            lambda: 'return id(popup_topbar_modified);'
+          then:
+            - lvgl.label.update:               # Restore the original top bar title
+                id: lbl_top_text
+                text:
+                  format: "%s"
+                  args: [ 'id(popup_prev_title).c_str()' ]
+            - lambda: |-                       # Restore the original top bar colors
+                lv_obj_set_style_bg_color(id(top_bar), id(popup_prev_bg), LV_PART_MAIN);
+                lv_obj_set_style_bg_grad_color(id(top_bar), id(popup_prev_grad), LV_PART_MAIN);
+                id(popup_topbar_modified) = false;
+      - script.execute: timer_start            # Resume normal idle behaviour
+  - platform: template                         # Popup answer YES: device sets it ON on click, HA resets it OFF when done
+    name: "Popup Yes"
+    id: sw_popup_yes
+    icon: mdi:check-circle
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:                                # Highlight the YES button (brighter background) while active
+      - lvgl.widget.update:
+          id: btn_popup_yes
+          state:
+            checked: true
+    on_turn_off:                               # Restore the YES button background
+      - lvgl.widget.update:
+          id: btn_popup_yes
+          state:
+            checked: false
+  - platform: template                         # Popup answer NO: device sets it ON on click, HA resets it OFF when done
+    name: "Popup No"
+    id: sw_popup_no
+    icon: mdi:close-circle
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:                                # Highlight the NO button (brighter background) while active
+      - lvgl.widget.update:
+          id: btn_popup_no
+          state:
+            checked: true
+    on_turn_off:                               # Restore the NO button background
+      - lvgl.widget.update:
+          id: btn_popup_no
+          state:
+            checked: false
 text:
   - platform: template                         # Product name sent from Home Assistant after lookup of barcode
     name: "Product Name"
@@ -336,6 +442,52 @@ text:
             text:
               format: "%s"
               args:  [ 'x.c_str()' ]           
+  - platform: template                         # Popup message text, configurable from Home Assistant
+    name: "Popup Message"
+    id: popup_message
+    icon: mdi:message-text
+    mode: text
+    min_length: 0
+    max_length: 255
+    initial_value: ""
+    restore_value: false
+    optimistic: true
+    on_value:
+      then:
+        - logger.log:
+            level: INFO                        # Write a log entry when a new popup message is received
+            format: "New Popup Message received from HA: %s"
+            args: [ 'x.c_str()' ]
+        - lvgl.label.update:                   # Update the popup message label on the top layer
+            id: lbl_popup_msg
+            text:
+              format: "%s"
+              args:  [ 'x.c_str()' ]
+  - platform: template                         # Popup top-bar header text, configurable from Home Assistant
+    name: "Popup Header"
+    id: popup_header
+    icon: mdi:format-title
+    mode: text
+    min_length: 0
+    max_length: 32
+    initial_value: ""
+    restore_value: false
+    optimistic: true
+    on_value:
+      then:
+        - logger.log:
+            level: INFO                        # Write a log entry when a new popup header is received
+            format: "New Popup Header received from HA: %s"
+            args: [ 'x.c_str()' ]
+        - if:
+            condition:                         # If the popup is currently up, update the visible top bar title live
+              lambda: 'return id(sw_popup).state;'
+            then:
+              - lvgl.label.update:
+                  id: lbl_top_text
+                  text:
+                    format: "%s"
+                    args:  [ 'x.c_str()' ]
 #########################################################################################################################
 # Home Assistant events
 #########################################################################################################################
@@ -418,7 +570,8 @@ font:                                                           # Fonts located 
       "\U0000e8ac"  # mdi:power
       ] 
 image:
-  - file: "${logo_file}"                                        # Company logo for the SPLASH screen 
+  - platform: file                                            # Company logo for the SPLASH screen (new 'image' platform format)
+    file: "${logo_file}"
     id: logo_image
     resize: 280x200
     type: RGB565
@@ -586,6 +739,92 @@ lvgl:
                         - script.execute: show_use_product
                       else:
                         - script.execute: show_mode_selection
+      - obj:                          # HA-controlled informative popup, drawn on top of any page (below the top bar)
+          id: popup_screen
+          hidden: true                # Hidden until Home Assistant turns the "Popup" switch ON
+          x: 0
+          y: 42                       # Sit below the 38px top bar with a small gap (no overlap); set to 0 at runtime on splash
+          width: 100%
+          height: 196                 # Screen height (240) minus top bar + gap; set to 240 at runtime on splash
+          styles:
+            - style_details_border    # Opaque dark background + gold border (matches details sections)
+          radius: 0                   # Full-bleed rectangle, no rounded corners
+          pad_all: 12
+          widgets:
+            - label:                  # The informative message coming from Home Assistant
+                id: lbl_popup_msg
+                text: ""
+                align: TOP_MID
+                y: 4
+                width: 292
+                long_mode: wrap
+                text_align: CENTER
+                text_font: arial_font_20
+                text_color: 0xDBA85A
+            - button:                 # YES answer button
+                id: btn_popup_yes
+                align: BOTTOM_LEFT
+                x: 6
+                y: -10
+                width: 135
+                height: 60
+                checkable: true
+                bg_color: 0x2E7D32    # Green
+                bg_opa: COVER
+                radius: 10
+                border_width: 2
+                border_color: 0xDBA85A
+                pressed:
+                  bg_color: 0x1B5E20  # Darker green while pressed
+                checked:
+                  bg_color: 0x66BB6A  # Brighter green while the answer is active (switch ON)
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "${txt_popup_yes}"
+                      text_font: arial_font_24
+                      text_color: 0xFFFFFF
+                on_click:             # Toggle the HA-readable "Popup Yes" switch based on the button's checked state
+                  then:
+                    - if:
+                        condition:
+                          lambda: 'return lv_obj_has_state(id(btn_popup_yes), LV_STATE_CHECKED);'
+                        then:
+                          - switch.turn_on: sw_popup_yes
+                        else:
+                          - switch.turn_off: sw_popup_yes
+            - button:                 # NO answer button
+                id: btn_popup_no
+                align: BOTTOM_RIGHT
+                x: -6
+                y: -10
+                width: 135
+                height: 60
+                checkable: true
+                bg_color: 0xC62828    # Red
+                bg_opa: COVER
+                radius: 10
+                border_width: 2
+                border_color: 0xDBA85A
+                pressed:
+                  bg_color: 0xB71C1C  # Darker red while pressed
+                checked:
+                  bg_color: 0xEF5350  # Brighter red while the answer is active (switch ON)
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "${txt_popup_no}"
+                      text_font: arial_font_24
+                      text_color: 0xFFFFFF
+                on_click:             # Toggle the HA-readable "Popup No" switch based on the button's checked state
+                  then:
+                    - if:
+                        condition:
+                          lambda: 'return lv_obj_has_state(id(btn_popup_no), LV_STATE_CHECKED);'
+                        then:
+                          - switch.turn_on: sw_popup_no
+                        else:
+                          - switch.turn_off: sw_popup_no
   pages:
     - id: page_mode_selection           # Mode selection — ADD / USE / PRINT
       bg_color: 0x0D0D0D
@@ -1358,6 +1597,81 @@ script:
                 bg_color: 0xE91E63
                 bg_grad_color: 0xAD1457
                 bg_grad_dir: VER
+  # Apply the configured color for the informative popup to the top bar
+  - id: apply_color_info
+    then:
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Green";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00CC44
+                bg_grad_color: 0x009933
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Blue";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x2196F3
+                bg_grad_color: 0x1565C0
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Red";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xF44336
+                bg_grad_color: 0xB71C1C
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Orange";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xFF9800
+                bg_grad_color: 0xE65100
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Purple";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x9C27B0
+                bg_grad_color: 0x6A1B9A
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Gold";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xDBA85A
+                bg_grad_color: 0xC89848
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Cyan";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0x00BCD4
+                bg_grad_color: 0x00838F
+                bg_grad_dir: VER
+      - if:
+          condition:
+            lambda: 'return id(color_info_mode).current_option() == "Pink";'
+          then:
+            - lvgl.obj.update:
+                id: top_bar
+                bg_color: 0xE91E63
+                bg_grad_color: 0xAD1457
+                bg_grad_dir: VER
   # Start the timer to switch to OFF mode when idle
   - id: timer_start                             
     then:
@@ -1767,4 +2081,22 @@ select:
       - Cyan
       - Pink
     initial_option: Blue
+    restore_value: true
+
+  - platform: template                          # Top bar color for the informative popup
+    name: "Color Info Popup"
+    id: color_info_mode
+    optimistic: true
+    icon: mdi:palette
+    entity_category: config
+    options:
+      - Green
+      - Blue
+      - Red
+      - Orange
+      - Purple
+      - Gold
+      - Cyan
+      - Pink
+    initial_option: Orange
     restore_value: true
