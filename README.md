@@ -8,6 +8,10 @@ notifications. A hands-free **handheld scanner** (an ESPHome/MQTT barcode reader
 consume stock directly, switched between **Add** and **Use** mode from the Inventory tab.
 Two dedicated **[Large screen barcode scanners](docs/SCANNER.md)** (ESP32/ESPHome touchscreen
 devices) are also supported for a full on-device scan-and-print experience.
+Smart **duplicate & alternative detection** helps keep the list clean: an Add-mode scan that
+looks like a product already on your shopping list, or a Use-mode scan that empties a product
+while a similar one is still in stock, raises an interactive **Yes/No pop-up** on the scanner
+(with optional voice prompt) so you decide what ends up on the list.
 Searching any table matches on **product name or barcode**. The inventory stays tidy:
 products that run out (stock 0) drop off the list automatically while staying on your
 shopping list.

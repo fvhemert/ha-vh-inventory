@@ -56,7 +56,7 @@ The tabs, left to right:
 | **Stores** | Shops. |
 | **Scan** | Scan or type barcodes; Add/Use flow; resolve unknown items. |
 | **History** | Audit log of all changes (latest 50 shown). |
-| **Setup** | App settings: language selector, *Show ID columns*, and *Hide header (kiosk)* toggles. |
+| **Setup** | App settings: language selector, *Show ID columns* / *Hide header (kiosk)* toggles, and the *Handheld scanner*, *Similarity checking*, *Alternative in stock*, *Spoken announcements (TTS)* and *Mobile notifications* sections. |
 
 ---
 
@@ -299,6 +299,11 @@ module, built with ESPHome and LVGL. From their on-device UI you pick **Add**, *
 automations process exactly like any other scanner, pushing the product name, description,
 and stock back to the device's screen.
 
+Each large-screen scanner can also raise a full-screen **informative pop-up** (with **Ja** /
+**Nee** buttons) on demand from Home Assistant. VH-Inventory uses this for the *Similarity
+checking* and *Alternative in stock* prompts (see §9) — the pop-up appears on whichever scanner
+did the scan, and your Yes/No answer drives the shopping list.
+
 Their firmware lives in [`esphome/`](../esphome), hardware reference material in
 [`hardware/`](../hardware), and full documentation (build environment, wiring, user flow,
 and GM67 configuration) in the **[Large screen barcode scanners guide](SCANNER.md)**.
@@ -326,8 +331,8 @@ growing without bound.
 
 The **Setup** tab holds application settings: the **Language** selector, a **Show ID
 columns** toggle, a **Hide header (kiosk)** toggle, a **Handheld scanner** section, a
-**Similarity checking** section, and the **Spoken announcements (TTS)** and **Mobile
-notifications** sections.
+**Similarity checking** section, an **Alternative in stock** section, and the **Spoken
+announcements (TTS)** and **Mobile notifications** sections.
 
 ![Setup tab](images/09-setup.png)
 
@@ -420,9 +425,11 @@ handheld-specific notification messages.
 When a product is scanned in **Add** mode, its resolved name is compared against the products
 already on the shopping list. If a close match is found, an informative pop-up is raised on
 the large-screen scanner that did the scan (`barcode-01` or `barcode-02`) asking whether the
-scanned item is the same product
-bought in a different shop. This helps avoid creating duplicate entries for the same product
-under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere melk*).
+scanned item is the same product bought in a different shop. This helps avoid creating
+duplicate entries for the same product under slightly different names (e.g. *Campina magere
+melk* vs *Houdbare magere melk*).
+
+![Similarity checking settings](images/16-similarity.png)
 
 - **Similarity threshold** — the minimum match score (0–100 %) required to raise the pop-up.
   Lower it to catch looser matches, raise it to only flag near-identical names. Default `70`.
@@ -461,8 +468,10 @@ avoid buying more than you need, the *Alternative in stock* check compares the j
 product's name against everything **still in stock**. If a close enough match is found, the
 product is **not** added automatically. Instead an **interactive Info Popup** is raised on
 the large-screen scanner that did the scan (`barcode-01` or `barcode-02`) asking whether to
-add it to the shopping list anyway, and a spoken announcement
-offers the in-stock alternative. The stock decrement always happens as normal.
+add it to the shopping list anyway, and a spoken announcement offers the in-stock
+alternative. The stock decrement always happens as normal.
+
+![Alternative in stock settings](images/17-alt-stock.png)
 
 The popup has two buttons:
 
