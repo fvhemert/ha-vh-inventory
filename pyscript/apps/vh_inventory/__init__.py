@@ -25,6 +25,17 @@ SIMILARITY_MSG_TEMPLATE = "Is {scanned_product} similar to {matched_product}"
 SIMILARITY_VAR_COLOR = "DBA85A"
 SIMILARITY_POPUP_DEVICE = "barcode-01"
 
+# When the LAST unit of a product is consumed (a Use scan brings its stock to 0),
+# its name is compared against the products still IN STOCK. A best match at or
+# above ALT_STOCK_THRESHOLD is treated as an equivalent already on the shelf: the
+# product is NOT re-added to the shopping list and a decoupled TTS announcement
+# offers the in-stock alternative instead. FALLBACK default only - the live
+# threshold/toggles/message are read from HA helpers
+# (input_number.vh_alt_stock_threshold, input_boolean.vh_alt_stock_enabled,
+# input_boolean.vh_tts_announce_alt_stock, input_text.vh_tts_msg_alt_stock).
+# See _find_instock_alternative()/_alt_stock_threshold()/_alt_stock_enabled().
+ALT_STOCK_THRESHOLD = 90
+
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
 HISTORY_RETENTION_MONTHS = 3    # history rows older than this are auto-purged
 
@@ -314,6 +325,58 @@ def _purge_zero_stock_rows(conn, pids):
     return purged
 
 
+def _alt_stock_enabled():
+    """True when the 'alternative in stock' feature is on. Defaults to True when
+    the helper is missing/unknown so the behaviour works before it is seeded."""
+    try:
+        v = str(state.get("input_boolean.vh_alt_stock_enabled")).strip().lower()
+        if v in ("on", "off"):
+            return v == "on"
+    except Exception:
+        pass
+    return True
+
+
+def _alt_stock_threshold():
+    """Configured alternative-in-stock similarity threshold (0-100) from
+    input_number.vh_alt_stock_threshold, falling back to ALT_STOCK_THRESHOLD.
+    A value of 0 is treated as unset (a 0 threshold would match every product)."""
+    try:
+        v = float(state.get("input_number.vh_alt_stock_threshold"))
+        if 0.0 < v <= 100.0:
+            return v
+    except Exception:
+        pass
+    return ALT_STOCK_THRESHOLD
+
+
+def _find_instock_alternative(conn, pid, pname):
+    """Return the name of an IN-STOCK product (total quantity > 0, different
+    product_id) whose name is similar to `pname` at or above the configured
+    alt-stock threshold, or None. Used when the last unit of a product is
+    consumed to offer an equivalent already on the shelf instead of re-adding it
+    to the shopping list. Uses the caller's open connection (read-only query)."""
+    if not (pname or "").strip():
+        return None
+    threshold = _alt_stock_threshold()
+    rows = conn.execute(
+        "SELECT p.name FROM products p "
+        "JOIN stock s ON s.product_id = p.id "
+        "WHERE p.id != ? "
+        "GROUP BY p.id HAVING COALESCE(SUM(s.quantity), 0) > 0", [pid]).fetchall()
+    best_name, best_score = None, 0.0
+    for r in rows:
+        oname = (r[0] or "").strip()
+        if not oname:
+            continue
+        score = _name_similarity(pname, oname)
+        if score > best_score:
+            best_name, best_score = oname, score
+    if best_name is not None and best_score >= threshold:
+        return best_name
+    return None
+
+
 def _reconcile_shopping(before, after):
     """Reconcile the shopping list against an inventory change.
     before/after are {product_id: total}. For each product whose total:
@@ -350,15 +413,32 @@ def _reconcile_shopping(before, after):
                     continue
                 enabled, threshold, add_qty = info
                 if enabled and threshold and a < threshold and pid not in on_list:
-                    conn.execute(
-                        "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
-                        [pid, int(add_qty or 1)])
-                    on_list.add(pid)
-                    _hist_row(conn, "auto-add", "shopping_list", pid,
-                              "Auto-added product_id=%d qty=%d (stock %d < %d)"
-                              % (pid, int(add_qty or 1), a, threshold))
-                    changed = True
-                    _announce_shopping_add(pid)
+                    alt_name, pname = None, ""
+                    if a == 0 and _alt_stock_enabled():
+                        prow = conn.execute(
+                            "SELECT name FROM products WHERE id=?", [pid]).fetchone()
+                        pname = (prow[0] if prow else "") or ""
+                        alt_name = _find_instock_alternative(conn, pid, pname)
+                    if alt_name:
+                        # Last unit consumed but a similar product is in stock:
+                        # do NOT add to the shopping list; announce the
+                        # alternative instead.
+                        _hist_row(conn, "alt-in-stock", "shopping_list", pid,
+                                  "Last unit of product_id=%d consumed; '%s' in "
+                                  "stock -> not added to shopping list"
+                                  % (pid, alt_name))
+                        changed = True
+                        _announce_alt_stock(pname, alt_name)
+                    else:
+                        conn.execute(
+                            "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
+                            [pid, int(add_qty or 1)])
+                        on_list.add(pid)
+                        _hist_row(conn, "auto-add", "shopping_list", pid,
+                                  "Auto-added product_id=%d qty=%d (stock %d < %d)"
+                                  % (pid, int(add_qty or 1), a, threshold))
+                        changed = True
+                        _announce_shopping_add(pid)
         # Enforce the no-zero-stock rule for the products touched by this change.
         # Runs after the shopping-list logic (which used the pre-purge totals),
         # so auto-add on reaching 0 stays intact.
@@ -526,6 +606,20 @@ def _announce_similar(scanned, matched):
     try:
         event.fire("vh_inventory_announce", kind="similar_found",
                    scanned=scanned or "", matched=matched or "")
+    except Exception:
+        pass
+
+
+def _announce_alt_stock(scanned, alt):
+    """Fire a fire-and-forget event announcing that the LAST unit of a product
+    was just consumed but a similar product is still in stock, so the user can
+    use that one instead of buying more (e.g. "this was the last X but we have Y
+    in stock"). Decoupled TTS via the vh_inventory_announce automation
+    (kind == alt_in_stock). Wrapped in try/except so a notification problem can
+    never affect scanning or the inventory reconcile."""
+    try:
+        event.fire("vh_inventory_announce", kind="alt_in_stock",
+                   scanned=scanned or "", alt=alt or "")
     except Exception:
         pass
 

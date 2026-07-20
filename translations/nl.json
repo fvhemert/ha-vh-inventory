@@ -132,5 +132,9 @@
   "Announcement message": "Aankondigingstekst",
   "Tip: use {scanned_product} and {matched_product} in the message.": "Tip: gebruik {scanned_product} en {matched_product} in het bericht.",
   "Tip: use {scanned_product} and {matched_product}; {cr} for a new line.": "Tip: gebruik {scanned_product} en {matched_product}; {cr} voor een nieuwe regel.",
+  "Alternative in stock": "Alternatief op voorraad",
+  "Alternative-in-stock check": "Alternatief-op-voorraad controle",
+  "Alt-stock threshold": "Alternatief-drempel",
+  "Tip: use {scanned_product} and {alt_product}.": "Tip: gebruik {scanned_product} en {alt_product}.",
   "ID": "ID"
 }

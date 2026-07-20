@@ -1153,10 +1153,33 @@ similarity_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Similarity checking"), _similarity_setting_rows,
   _similarity_msg_hint]}
 
+# --- Alternative in stock (Setup tab) ---------------------------------------
+# Controls the Use-mode behaviour: when the LAST unit of a product is consumed,
+# pyscript checks whether a similar product is still in stock. If so the product
+# is NOT re-added to the shopping list and a decoupled TTS announcement offers
+# the in-stock alternative. Threshold/toggles/message read from these helpers.
+_alt_stock_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_boolean.vh_alt_stock_enabled",
+   "name": "Alternative-in-stock check", "icon": "mdi:swap-horizontal-bold"},
+  {"entity": "input_number.vh_alt_stock_threshold",
+   "name": "Alt-stock threshold", "icon": "mdi:swap-horizontal-bold"},
+  {"entity": "input_boolean.vh_tts_announce_alt_stock",
+   "name": "Speak announcement", "icon": "mdi:bullhorn"},
+  {"entity": "input_text.vh_tts_msg_alt_stock",
+   "name": "Announcement message", "icon": "mdi:message-text"}]}
+
+_alt_stock_msg_hint = {"type": "markdown",
+  "content": "*Tip: use {scanned_product} and {alt_product}.*",
+  "card_mod": HINT_CM}
+
+alt_stock_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("Alternative in stock"), _alt_stock_setting_rows,
+  _alt_stock_msg_hint]}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",
     "cards": [app_settings_card, tts_card, notify_card, handheld_card,
-              similarity_card, scanner_card]}}
+              similarity_card, alt_stock_card, scanner_card]}}
 
 
 CART_RED = (

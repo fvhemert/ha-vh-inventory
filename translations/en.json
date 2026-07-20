@@ -132,5 +132,9 @@
   "Announcement message": "Announcement message",
   "Tip: use {scanned_product} and {matched_product} in the message.": "Tip: use {scanned_product} and {matched_product} in the message.",
   "Tip: use {scanned_product} and {matched_product}; {cr} for a new line.": "Tip: use {scanned_product} and {matched_product}; {cr} for a new line.",
+  "Alternative in stock": "Alternative in stock",
+  "Alternative-in-stock check": "Alternative-in-stock check",
+  "Alt-stock threshold": "Alt-stock threshold",
+  "Tip: use {scanned_product} and {alt_product}.": "Tip: use {scanned_product} and {alt_product}.",
   "ID": "ID"
 }

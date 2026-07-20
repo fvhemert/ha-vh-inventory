@@ -69,6 +69,10 @@ input_text:
     name: VH TTS Message Similar
     max: 255
     icon: mdi:message-text
+  vh_tts_msg_alt_stock:
+    name: VH TTS Message Alt In Stock
+    max: 255
+    icon: mdi:message-text
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
@@ -395,6 +399,12 @@ input_boolean:
   vh_tts_announce_similar:
     name: VH TTS Announce Similar
     icon: mdi:approximately-equal
+  vh_alt_stock_enabled:
+    name: VH Alt Stock Enabled
+    icon: mdi:swap-horizontal-bold
+  vh_tts_announce_alt_stock:
+    name: VH TTS Announce Alt In Stock
+    icon: mdi:cart-arrow-down
   vh_notify_enabled:
     name: VH Notify Enabled
     icon: mdi:cellphone-message
@@ -490,6 +500,14 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:approximately-equal
+  vh_alt_stock_threshold:
+    name: VH Alt Stock Threshold
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:swap-horizontal-bold
 
 script:
   vh_save_product:
@@ -1035,7 +1053,9 @@ automation:
       (kind == scan_unresolved) announcements, plus "consumed
       from the inventory with stock remaining, via ANY scanner" (kind ==
       scan_used, quantity >= 1) and "a scanned product looks similar to a
-      shopping-list item" (kind == similar_found), each gated by its own toggle.
+      shopping-list item" (kind == similar_found), plus "the last unit was
+      consumed but a similar product is still in stock" (kind == alt_in_stock),
+      each gated by its own toggle.
     mode: parallel
     max: 10
     triggers:
@@ -1057,7 +1077,9 @@ automation:
                 and (trigger.event.data.quantity | default(0) | int) >= 1
                 and is_state('input_boolean.vh_tts_announce_scan_used', 'on'))
              or (trigger.event.data.kind == 'similar_found'
-                and is_state('input_boolean.vh_tts_announce_similar', 'on')) }}
+                and is_state('input_boolean.vh_tts_announce_similar', 'on'))
+             or (trigger.event.data.kind == 'alt_in_stock'
+                and is_state('input_boolean.vh_tts_announce_alt_stock', 'on')) }}
     variables:
       players: >-
         {{ states('input_text.vh_tts_media_players').split(',')
@@ -1067,6 +1089,7 @@ automation:
       product: "{{ trigger.event.data.product | default('') | trim }}"
       scanned: "{{ trigger.event.data.scanned | default('') | trim }}"
       matched: "{{ trigger.event.data.matched | default('') | trim }}"
+      alt: "{{ trigger.event.data.alt | default('') | trim }}"
       message: >-
         {% if trigger.event.data.kind == 'scan_unresolved' %}
         {% set t = states('input_text.vh_tts_msg_scan_unresolved') %}
@@ -1087,6 +1110,12 @@ automation:
         {% set t = 'Is {scanned_product} hetzelfde als {matched_product}, check de display' %}
         {% endif %}
         {{ t | replace('{scanned_product}', scanned) | replace('{matched_product}', matched) }}
+        {% elif trigger.event.data.kind == 'alt_in_stock' %}
+        {% set t = states('input_text.vh_tts_msg_alt_stock') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = 'Dit was het laatste item {scanned_product}, maar er is nog {alt_product} op voorraad die je kunt gebruiken.' %}
+        {% endif %}
+        {{ t | replace('{scanned_product}', scanned) | replace('{alt_product}', alt) }}
         {% else %}
         {% set t = states('input_text.vh_tts_msg_shopping_add') %}
         {% if t in ['', 'unknown', 'unavailable'] %}
@@ -1252,6 +1281,21 @@ automation:
           value: >-
             {{ 70 if states('input_number.vh_similarity_threshold') in ['unknown', 'unavailable', '0', '0.0']
                else states('input_number.vh_similarity_threshold') }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vh_alt_stock_threshold
+        data:
+          value: >-
+            {{ 90 if states('input_number.vh_alt_stock_threshold') in ['unknown', 'unavailable', '0', '0.0']
+               else states('input_number.vh_alt_stock_threshold') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_msg_alt_stock
+        data:
+          value: >-
+            {{ 'Dit was het laatste item {scanned_product}, maar er is nog {alt_product} op voorraad die je kunt gebruiken.'
+               if states('input_text.vh_tts_msg_alt_stock') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_tts_msg_alt_stock') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_similarity_popup_header

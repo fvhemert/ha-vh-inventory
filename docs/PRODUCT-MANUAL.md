@@ -450,6 +450,32 @@ themselves. (Only `barcode-01` is wired up.)
 All Setup-tab settings are backed by input helpers and **persist across Home Assistant
 restarts**.
 
+### Alternative in stock
+
+When a product is scanned in **Use** mode and this consumes its **last unit** (stock reaches
+0), the backend normally re-adds it to the shopping list. But you may already have an
+equivalent product on the shelf that was simply bought under a different barcode/brand. To
+avoid buying more than you need, the *Alternative in stock* check compares the just-emptied
+product's name against everything **still in stock**. If a close enough match is found, the
+product is **not** added to the shopping list and a spoken announcement offers the in-stock
+alternative instead. The stock decrement always happens as normal.
+
+- **Alternative-in-stock check** — master on/off for this behaviour. Default **on**.
+- **Alt-stock threshold** — the minimum match score (0–100 %) required to treat an in-stock
+  product as an equivalent. Default `90` — deliberately higher than the Add-mode similarity
+  threshold, because a false match here would silently keep a genuinely-needed product off
+  your shopping list. Uses the same hybrid name scorer.
+- **Speak announcement** — optional on/off toggle for the spoken prompt, played fully
+  decoupled from the scan. Also requires the master *Announcements enabled* switch.
+- **Announcement message** — the spoken text. Use `{scanned_product}` for the emptied product
+  and `{alt_product}` for the in-stock alternative. Default *Dit was het laatste item
+  {scanned_product}, maar er is nog {alt_product} op voorraad die je kunt gebruiken.*
+
+Every suppressed shopping-add is recorded in the History log (`alt-in-stock`) so the
+behaviour is fully auditable. This is name-similarity based (phase 1); explicit
+product-alternative links may be added later for cross-brand alternatives that do not share
+words (e.g. different product names entirely).
+
 ---
 
 ## 10. Tips & behaviours
