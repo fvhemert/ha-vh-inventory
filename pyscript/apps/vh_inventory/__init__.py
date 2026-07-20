@@ -1258,8 +1258,10 @@ def _check_shopping_similarity(scanned_name):
     already on the shopping list whose name is similar (>= the configured
     threshold). If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE
     asking the user whether the two are the same product. Exact-name matches are
-    skipped (they are the same product, not merely a similar one). The popup's
-    Yes/No buttons are not acted on yet - this only shows the prompt.
+    skipped (they are the same product, not merely a similar one). The matched
+    product's id is remembered in pyscript.vh_similarity_match_pid so the popup's
+    Yes button (vh_inventory_similarity_confirm) can remove that product from the
+    shopping list; No simply dismisses the popup.
 
     The threshold and popup header/message are read from HA helpers (configurable
     on the Setup tab) and fall back to the module constants when unset."""
@@ -1284,6 +1286,13 @@ def _check_shopping_similarity(scanned_name):
     message = template.replace("{scanned_product}", gold + scanned + "#") \
                       .replace("{matched_product}", gold + best_name + "#") \
                       .replace("{cr}", "\n")
+    best_pid = None
+    for entry in _load_shopping():
+        if (entry.get("product") or "").strip().lower() == best_name.strip().lower():
+            best_pid = entry.get("product_id")
+            break
+    state.set("pyscript.vh_similarity_match_pid",
+              str(best_pid) if best_pid is not None else "")
     dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
@@ -1908,6 +1917,31 @@ def vh_inventory_shopping_toggle(product_id=None):
         _log_history("add", "shopping_list", None,
                      "Added product_id=%d to shopping list (tap)" % pid)
         _announce_shopping_add(pid)
+
+
+@service
+def vh_inventory_similarity_confirm():
+    """Similarity popup 'Yes' pressed: the scanned product is the same as the
+    matched shopping-list product, so remove that matched product from the
+    shopping list. The matched product_id was remembered in the
+    pyscript.vh_similarity_match_pid state entity when the popup was raised."""
+    try:
+        raw = str(state.get("pyscript.vh_similarity_match_pid")).strip()
+    except Exception:
+        raw = ""
+    if not raw or raw in ("unknown", "unavailable", "None"):
+        log.warning("vh_inventory_similarity_confirm: no remembered matched product")
+        return
+    try:
+        pid = int(float(raw))
+    except Exception:
+        log.warning("vh_inventory_similarity_confirm: bad matched pid %r" % raw)
+        return
+    _exec("DELETE FROM shopping_list WHERE product_id=?", [pid])
+    _log_history("remove", "shopping_list", None,
+                 "Similarity Yes: removed matched product_id=%d from shopping list"
+                 % pid)
+    state.set("pyscript.vh_similarity_match_pid", "")
 
 
 @service

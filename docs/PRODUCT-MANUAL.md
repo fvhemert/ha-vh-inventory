@@ -434,8 +434,10 @@ under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere m
   Insert `{cr}` anywhere to force a line break. Default *Is {scanned_product} similar to
   {matched_product}*.
 
-The pop-up's **Yes/No** buttons are readable from Home Assistant but are not acted on yet —
-this step only surfaces the prompt.
+The pop-up's **Yes** button confirms the scanned product is the same as the matched
+shopping-list product and **removes that matched product from the shopping list**;
+**No** simply dismisses the pop-up. Both buttons also close the pop-up and reset
+themselves. (Only `barcode-01` is wired up.)
 
 - **Speak announcement** — optional on/off toggle. When on, a spoken TTS prompt is played
   **together with** the pop-up (but fully decoupled, so it never delays scanning) through the
