@@ -12,7 +12,7 @@ NONE = "(none)"
 # names already on the shopping list. A best match at or above this score
 # (0-100) raises the informative "Similar product found" popup on the scanner
 # below (SIMILARITY_POPUP_DEVICE). See _check_shopping_similarity().
-SIMILARITY_THRESHOLD = 90
+SIMILARITY_THRESHOLD = 85
 SIMILARITY_POPUP_DEVICE = "barcode-01"
 
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
