@@ -1139,7 +1139,11 @@ _similarity_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities":
   {"entity": "input_text.vh_similarity_popup_header",
    "name": "Popup header", "icon": "mdi:message-alert"},
   {"entity": "input_text.vh_similarity_msg",
-   "name": "Similarity message", "icon": "mdi:message-text"}]}
+   "name": "Similarity message", "icon": "mdi:message-text"},
+  {"entity": "input_boolean.vh_tts_announce_similar",
+   "name": "Speak announcement", "icon": "mdi:bullhorn"},
+  {"entity": "input_text.vh_tts_msg_similar",
+   "name": "Announcement message", "icon": "mdi:message-text"}]}
 
 _similarity_msg_hint = {"type": "markdown",
   "content": "*Tip: use {scanned_product} and {matched_product}; {cr} for a new line.*",

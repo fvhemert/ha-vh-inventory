@@ -65,6 +65,10 @@ input_text:
     name: VH Similarity Message
     max: 255
     icon: mdi:message-text
+  vh_tts_msg_similar:
+    name: VH TTS Message Similar
+    max: 255
+    icon: mdi:message-text
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
@@ -388,6 +392,9 @@ input_boolean:
   vh_tts_announce_scan_used:
     name: VH TTS Announce Scan Used
     icon: mdi:barcode-scan
+  vh_tts_announce_similar:
+    name: VH TTS Announce Similar
+    icon: mdi:approximately-equal
   vh_notify_enabled:
     name: VH Notify Enabled
     icon: mdi:cellphone-message
@@ -989,7 +996,8 @@ automation:
       (kind == shopping_add) and "scanned barcode could not be resolved"
       (kind == scan_unresolved) announcements, plus "consumed
       from the inventory with stock remaining, via ANY scanner" (kind ==
-      scan_used, quantity >= 1), each gated by its own toggle.
+      scan_used, quantity >= 1) and "a scanned product looks similar to a
+      shopping-list item" (kind == similar_found), each gated by its own toggle.
     mode: parallel
     max: 10
     triggers:
@@ -1009,7 +1017,9 @@ automation:
                 and is_state('input_boolean.vh_tts_announce_scan_unresolved', 'on'))
              or (trigger.event.data.kind == 'scan_used'
                 and (trigger.event.data.quantity | default(0) | int) >= 1
-                and is_state('input_boolean.vh_tts_announce_scan_used', 'on')) }}
+                and is_state('input_boolean.vh_tts_announce_scan_used', 'on'))
+             or (trigger.event.data.kind == 'similar_found'
+                and is_state('input_boolean.vh_tts_announce_similar', 'on')) }}
     variables:
       players: >-
         {{ states('input_text.vh_tts_media_players').split(',')
@@ -1017,6 +1027,8 @@ automation:
            | reject('in', ['unknown', 'unavailable']) | list }}
       volume: "{{ states('input_number.vh_tts_volume') | float(40) / 100 }}"
       product: "{{ trigger.event.data.product | default('') | trim }}"
+      scanned: "{{ trigger.event.data.scanned | default('') | trim }}"
+      matched: "{{ trigger.event.data.matched | default('') | trim }}"
       message: >-
         {% if trigger.event.data.kind == 'scan_unresolved' %}
         {% set t = states('input_text.vh_tts_msg_scan_unresolved') %}
@@ -1031,6 +1043,12 @@ automation:
         {% set t = '{product} verbruikt, nog {qty} op voorraad.' %}
         {% endif %}
         {{ t | replace('{product}', product) | replace('{qty}', qty | string) }}
+        {% elif trigger.event.data.kind == 'similar_found' %}
+        {% set t = states('input_text.vh_tts_msg_similar') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = 'Is {scanned_product} hetzelfde als {matched_product}, check de display' %}
+        {% endif %}
+        {{ t | replace('{scanned_product}', scanned) | replace('{matched_product}', matched) }}
         {% else %}
         {% set t = states('input_text.vh_tts_msg_shopping_add') %}
         {% if t in ['', 'unknown', 'unavailable'] %}
@@ -1181,6 +1199,14 @@ automation:
             {{ '{product} verbruikt, nog {qty} op voorraad.'
                if states('input_text.vh_tts_msg_scan_used') in ['unknown', 'unavailable']
                else states('input_text.vh_tts_msg_scan_used') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_tts_msg_similar
+        data:
+          value: >-
+            {{ 'Is {scanned_product} hetzelfde als {matched_product}, check de display'
+               if states('input_text.vh_tts_msg_similar') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_tts_msg_similar') }}
       - action: input_number.set_value
         target:
           entity_id: input_number.vh_similarity_threshold

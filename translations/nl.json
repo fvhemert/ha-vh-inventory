@@ -128,6 +128,8 @@
   "Similarity threshold": "Gelijkenis-drempel",
   "Popup header": "Popup-koptekst",
   "Similarity message": "Gelijkenis-bericht",
+  "Speak announcement": "Spreek aankondiging uit",
+  "Announcement message": "Aankondigingstekst",
   "Tip: use {scanned_product} and {matched_product} in the message.": "Tip: gebruik {scanned_product} en {matched_product} in het bericht.",
   "Tip: use {scanned_product} and {matched_product}; {cr} for a new line.": "Tip: gebruik {scanned_product} en {matched_product}; {cr} voor een nieuwe regel.",
   "ID": "ID"

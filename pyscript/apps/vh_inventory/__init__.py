@@ -516,6 +516,20 @@ def _announce_scan_used(pid, qty):
         pass
 
 
+def _announce_similar(scanned, matched):
+    """Fire a fire-and-forget event announcing that an Add-mode scan resolved to
+    a product that looks similar to one already on the shopping list, so the user
+    can be prompted (e.g. "is X the same as Y, check the display") over TTS. Runs
+    together with the popup but fully decoupled: the separate vh_inventory_announce
+    automation (kind == similar_found) does the slow chime-tts work. Wrapped in
+    try/except so a notification problem can never affect the popup or scanning."""
+    try:
+        event.fire("vh_inventory_announce", kind="similar_found",
+                   scanned=scanned or "", matched=matched or "")
+    except Exception:
+        pass
+
+
 def _fetch_one(table, cols, rid):
     conn = _conn()
     try:
@@ -1274,6 +1288,7 @@ def _check_shopping_similarity(scanned_name):
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
     switch.turn_on(entity_id="switch.%s_popup" % dev)
+    _announce_similar(scanned, best_name)
     _log_history("similar", "shopping_list", None,
                  "Add-scan '%s' ~ shopping '%s' (%.0f%%) -> popup"
                  % (scanned, best_name, best_score))

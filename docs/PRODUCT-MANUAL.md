@@ -437,6 +437,14 @@ under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere m
 The pop-up's **Yes/No** buttons are readable from Home Assistant but are not acted on yet —
 this step only surfaces the prompt.
 
+- **Speak announcement** — optional on/off toggle. When on, a spoken TTS prompt is played
+  **together with** the pop-up (but fully decoupled, so it never delays scanning) through the
+  same Sonos speakers and volume as the other announcements. It also requires the master
+  *Announcements enabled* switch (in *Spoken announcements (TTS)*) to be on.
+- **Announcement message** — the spoken text. Uses the same `{scanned_product}` /
+  `{matched_product}` placeholders. Default *Is {scanned_product} hetzelfde als
+  {matched_product}, check de display*.
+
 All Setup-tab settings are backed by input helpers and **persist across Home Assistant
 restarts**.
 
