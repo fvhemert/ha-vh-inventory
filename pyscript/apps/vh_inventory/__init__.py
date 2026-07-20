@@ -12,7 +12,7 @@ NONE = "(none)"
 # names already on the shopping list. A best match at or above this score
 # (0-100) raises the informative "Similar product found" popup on the scanner
 # below (SIMILARITY_POPUP_DEVICE). See _check_shopping_similarity().
-SIMILARITY_THRESHOLD = 85
+SIMILARITY_THRESHOLD = 70
 SIMILARITY_POPUP_DEVICE = "barcode-01"
 
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
@@ -1170,16 +1170,40 @@ def _shopping_product_names():
     return names
 
 
+def _ratio(a, b):
+    """Character-based similarity 0-100 (difflib SequenceMatcher)."""
+    return SequenceMatcher(None, a, b).ratio() * 100.0
+
+
+def _token_set_ratio(a, b):
+    """RapidFuzz-style token_set_ratio using stdlib difflib. Compares the sorted
+    set of shared words against each full name, so two products that share their
+    'core' words (e.g. 'magere melk') score high even when the brand/prefix words
+    differ ('Campina' vs 'Houdbare'). Word-order and duplicate-word insensitive."""
+    ta = sorted(set(a.split()))
+    tb = sorted(set(b.split()))
+    inter = sorted(set(ta) & set(tb))
+    if not inter:
+        return _ratio(" ".join(ta), " ".join(tb))
+    s_inter = " ".join(inter)
+    s_a = (s_inter + " " + " ".join(w for w in ta if w not in inter)).strip()
+    s_b = (s_inter + " " + " ".join(w for w in tb if w not in inter)).strip()
+    return max(_ratio(s_inter, s_a), _ratio(s_inter, s_b), _ratio(s_a, s_b))
+
+
 def _name_similarity(a, b):
     """Similarity score (0-100) between two product names, case-insensitive.
-    Isolated here so the scoring engine can be swapped later (e.g. RapidFuzz or
-    sentence-transformer embeddings) without changing the popup wiring. First
-    step uses difflib (Python stdlib), which is character-based."""
+    Hybrid of a character-based ratio and a token-set ratio (max of the two) so
+    that both typo-level closeness and shared-core-word matches are caught. This
+    lets 'Campina magere melk' match 'Houdbare magere melk' (same product, other
+    brand/shop) while still scoring near-identical strings highly. Isolated here
+    so the scoring engine can be swapped later (e.g. RapidFuzz or
+    sentence-transformer embeddings) without changing the popup wiring."""
     a = (a or "").strip().lower()
     b = (b or "").strip().lower()
     if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a, b).ratio() * 100.0
+    return max(_ratio(a, b), _token_set_ratio(a, b))
 
 
 def _check_shopping_similarity(scanned_name):
