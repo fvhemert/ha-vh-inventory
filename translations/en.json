@@ -124,5 +124,10 @@
   "No mobile devices found.": "No mobile devices found.",
   "Announcement volume": "Announcement volume",
   "No Sonos players found.": "No Sonos players found.",
+  "Similarity checking": "Similarity checking",
+  "Similarity threshold": "Similarity threshold",
+  "Popup header": "Popup header",
+  "Similarity message": "Similarity message",
+  "Tip: use {scanned_product} and {matched_product} in the message.": "Tip: use {scanned_product} and {matched_product} in the message.",
   "ID": "ID"
 }

@@ -12,7 +12,13 @@ NONE = "(none)"
 # names already on the shopping list. A best match at or above this score
 # (0-100) raises the informative "Similar product found" popup on the scanner
 # below (SIMILARITY_POPUP_DEVICE). See _check_shopping_similarity().
+# These are FALLBACK defaults only: the live threshold and popup header/message
+# are read from HA helpers (input_number.vh_similarity_threshold,
+# input_text.vh_similarity_popup_header, input_text.vh_similarity_msg) so they
+# are configurable from the Setup tab. See _similarity_threshold()/_helper_text().
 SIMILARITY_THRESHOLD = 70
+SIMILARITY_POPUP_HEADER = "Similar product found"
+SIMILARITY_MSG_TEMPLATE = "Is {scanned_product} similar to {matched_product}"
 SIMILARITY_POPUP_DEVICE = "barcode-01"
 
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
@@ -1206,16 +1212,43 @@ def _name_similarity(a, b):
     return max(_ratio(a, b), _token_set_ratio(a, b))
 
 
+def _similarity_threshold():
+    """Configured similarity threshold (0-100) from input_number, falling back to
+    SIMILARITY_THRESHOLD when unset/unknown/out-of-range."""
+    try:
+        v = float(state.get("input_number.vh_similarity_threshold"))
+        if 0.0 <= v <= 100.0:
+            return v
+    except Exception:
+        pass
+    return SIMILARITY_THRESHOLD
+
+
+def _helper_text(entity_id, fallback):
+    """Read an input_text helper, returning `fallback` when unset/unknown/empty."""
+    try:
+        v = str(state.get(entity_id)).strip()
+    except Exception:
+        v = ""
+    if not v or v in ("unknown", "unavailable", "None"):
+        return fallback
+    return v
+
+
 def _check_shopping_similarity(scanned_name):
     """After an Add-mode scan resolves to `scanned_name`, look for a product
-    already on the shopping list whose name is similar (>= SIMILARITY_THRESHOLD).
-    If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE asking the
-    user whether the two are the same product. Exact-name matches are skipped
-    (they are the same product, not merely a similar one). The popup's Yes/No
-    buttons are not acted on yet - this only shows the prompt."""
+    already on the shopping list whose name is similar (>= the configured
+    threshold). If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE
+    asking the user whether the two are the same product. Exact-name matches are
+    skipped (they are the same product, not merely a similar one). The popup's
+    Yes/No buttons are not acted on yet - this only shows the prompt.
+
+    The threshold and popup header/message are read from HA helpers (configurable
+    on the Setup tab) and fall back to the module constants when unset."""
     scanned = (scanned_name or "").strip()
     if not scanned:
         return
+    threshold = _similarity_threshold()
     best_name, best_score = None, 0.0
     for cand in _shopping_product_names():
         if cand.strip().lower() == scanned.lower():
@@ -1223,13 +1256,17 @@ def _check_shopping_similarity(scanned_name):
         score = _name_similarity(scanned, cand)
         if score > best_score:
             best_name, best_score = cand, score
-    if best_name is None or best_score < SIMILARITY_THRESHOLD:
+    if best_name is None or best_score < threshold:
         return
+    header = _helper_text("input_text.vh_similarity_popup_header",
+                          SIMILARITY_POPUP_HEADER)
+    template = _helper_text("input_text.vh_similarity_msg",
+                            SIMILARITY_MSG_TEMPLATE)
+    message = template.replace("{scanned_product}", scanned) \
+                      .replace("{matched_product}", best_name)
     dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
-    text.set_value(entity_id="text.%s_popup_header" % dev,
-                   value="Similar product found")
-    text.set_value(entity_id="text.%s_popup_message" % dev,
-                   value="Is %s similar to %s" % (scanned, best_name))
+    text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
+    text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
     switch.turn_on(entity_id="switch.%s_popup" % dev)
     _log_history("similar", "shopping_list", None,
                  "Add-scan '%s' ~ shopping '%s' (%.0f%%) -> popup"

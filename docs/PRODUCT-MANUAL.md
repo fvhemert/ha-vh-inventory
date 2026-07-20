@@ -325,8 +325,9 @@ growing without bound.
 ## 9. Settings & language (Setup tab)
 
 The **Setup** tab holds application settings: the **Language** selector, a **Show ID
-columns** toggle, a **Hide header (kiosk)** toggle, a **Handheld scanner** section, and the
-**Spoken announcements (TTS)** and **Mobile notifications** sections.
+columns** toggle, a **Hide header (kiosk)** toggle, a **Handheld scanner** section, a
+**Similarity checking** section, and the **Spoken announcements (TTS)** and **Mobile
+notifications** sections.
 
 ![Setup tab](images/09-setup.png)
 
@@ -413,6 +414,26 @@ Configuration for the physical [handheld (MQTT) scanner](#handheld-mqtt-scanner)
 Handheld scan outcomes are announced through the shared, scanner-agnostic *Spoken
 announcements (TTS)* and *Mobile notifications* sections above — there are no longer any
 handheld-specific notification messages.
+
+### Similarity checking
+
+When a product is scanned in **Add** mode, its resolved name is compared against the products
+already on the shopping list. If a close match is found, an informative pop-up is raised on
+the large-screen scanner (`barcode-01`) asking whether the scanned item is the same product
+bought in a different shop. This helps avoid creating duplicate entries for the same product
+under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere melk*).
+
+- **Similarity threshold** — the minimum match score (0–100 %) required to raise the pop-up.
+  Lower it to catch looser matches, raise it to only flag near-identical names. Default `70`.
+  The scorer is a hybrid of character-level and shared-word (token-set) similarity, so
+  products that share their core words score high even when the brand/prefix differs.
+- **Popup header** — the title shown on the pop-up. Default *Similar product found*.
+- **Similarity message** — the pop-up body text. Use the `{scanned_product}` placeholder for
+  the just-scanned product name and `{matched_product}` for the matching shopping-list item.
+  Default *Is {scanned_product} similar to {matched_product}*.
+
+The pop-up's **Yes/No** buttons are readable from Home Assistant but are not acted on yet —
+this step only surfaces the prompt.
 
 All Setup-tab settings are backed by input helpers and **persist across Home Assistant
 restarts**.

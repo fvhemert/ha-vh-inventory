@@ -1129,9 +1129,30 @@ notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
 handheld_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Handheld scanner"), _handheld_setting_rows]}
 
+# --- Similarity checking (Setup tab) ----------------------------------------
+# Controls the Add-mode "similar product found" popup raised by pyscript when a
+# scanned product resembles one already on the shopping list. The threshold and
+# popup header/message are read from these helpers at scan time.
+_similarity_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_number.vh_similarity_threshold",
+   "name": "Similarity threshold", "icon": "mdi:approximately-equal"},
+  {"entity": "input_text.vh_similarity_popup_header",
+   "name": "Popup header", "icon": "mdi:message-alert"},
+  {"entity": "input_text.vh_similarity_msg",
+   "name": "Similarity message", "icon": "mdi:message-text"}]}
+
+_similarity_msg_hint = {"type": "markdown",
+  "content": "*Tip: use {scanned_product} and {matched_product} in the message.*",
+  "card_mod": HINT_CM}
+
+similarity_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("Similarity checking"), _similarity_setting_rows,
+  _similarity_msg_hint]}
+
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",
-    "cards": [app_settings_card, tts_card, notify_card, handheld_card, scanner_card]}}
+    "cards": [app_settings_card, tts_card, notify_card, handheld_card,
+              similarity_card, scanner_card]}}
 
 
 CART_RED = (

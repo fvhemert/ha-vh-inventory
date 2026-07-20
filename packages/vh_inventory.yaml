@@ -57,6 +57,14 @@ input_text:
     name: VH TTS Message Scan Used
     max: 255
     icon: mdi:message-text
+  vh_similarity_popup_header:
+    name: VH Similarity Popup Header
+    max: 255
+    icon: mdi:message-alert
+  vh_similarity_msg:
+    name: VH Similarity Message
+    max: 255
+    icon: mdi:message-text
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
@@ -467,6 +475,14 @@ input_number:
     mode: slider
     unit_of_measurement: "%"
     icon: mdi:volume-high
+  vh_similarity_threshold:
+    name: VH Similarity Threshold
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:approximately-equal
 
 script:
   vh_save_product:
@@ -1165,6 +1181,29 @@ automation:
             {{ '{product} verbruikt, nog {qty} op voorraad.'
                if states('input_text.vh_tts_msg_scan_used') in ['unknown', 'unavailable']
                else states('input_text.vh_tts_msg_scan_used') }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vh_similarity_threshold
+        data:
+          value: >-
+            {{ 70 if states('input_number.vh_similarity_threshold') in ['unknown', 'unavailable', '0', '0.0']
+               else states('input_number.vh_similarity_threshold') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_similarity_popup_header
+        data:
+          value: >-
+            {{ 'Similar product found'
+               if states('input_text.vh_similarity_popup_header') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_similarity_popup_header') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_similarity_msg
+        data:
+          value: >-
+            {{ 'Is {scanned_product} similar to {matched_product}'
+               if states('input_text.vh_similarity_msg') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_similarity_msg') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_notify_msg_shopping_add

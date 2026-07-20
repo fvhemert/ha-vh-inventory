@@ -124,5 +124,10 @@
   "No mobile devices found.": "Geen mobiele apparaten gevonden.",
   "Announcement volume": "Aankondigingsvolume",
   "No Sonos players found.": "Geen Sonos-speakers gevonden.",
+  "Similarity checking": "Gelijkenis-controle",
+  "Similarity threshold": "Gelijkenis-drempel",
+  "Popup header": "Popup-koptekst",
+  "Similarity message": "Gelijkenis-bericht",
+  "Tip: use {scanned_product} and {matched_product} in the message.": "Tip: gebruik {scanned_product} en {matched_product} in het bericht.",
   "ID": "ID"
 }
