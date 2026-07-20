@@ -119,9 +119,9 @@ All configuration via raw UART hex commands:
 - **Events** sent on scan: `esphome.scanner_product` / `esphome.scanner_generic`.
 - **Text entities** receive product info back from HA (name, description, stock).
 - **Switches** for print triggers and idle mode.
-- **Info popup** (Barcode-01) exposes a `Popup` switch, `Popup Message` / `Popup Header`
-  text fields, a `Color Info Popup` select, and `Popup Yes` / `Popup No` switches (see
-  [Info Popup](#info-popup-barcode-01)).
+- **Info popup** (Barcode-01 & Barcode-02) exposes a `Popup` switch, `Popup Message` /
+  `Popup Header` text fields, a `Color Info Popup` select, and `Popup Yes` / `Popup No`
+  switches (see [Info Popup](#info-popup-barcode-01--barcode-02)).
 - **Number entities** for brightness and timer settings (persisted, exposed in HA).
 - **Select entities** expose scanner hardware configuration to HA.
 - **OTA** and **captive portal** for maintenance.
@@ -130,10 +130,10 @@ All configuration via raw UART hex commands:
 > barcodes and manage inventory are part of **this** repository (VH-Inventory). See the
 > [Installation Guide](INSTALLATION.md) and [Product Manual](PRODUCT-MANUAL.md).
 
-### Info Popup (Barcode-01)
+### Info Popup (Barcode-01 & Barcode-02)
 
 An HA-controlled full-screen overlay for interactive prompts (e.g. confirmations from
-VH-Inventory automations). Added in firmware **v0.7.0**.
+VH-Inventory automations). Added in firmware **v0.7.0** on both large-screen scanners.
 
 - **Overlay** — Covers the full screen below the top bar (or the whole screen when shown
   from the splash screen). Displayed on top of whatever page is currently active.
@@ -150,12 +150,14 @@ VH-Inventory automations). Added in firmware **v0.7.0**.
 
 | Entity | Type | Purpose |
 |--------|------|---------|
-| `switch.barcode_01_popup` | switch | Show / hide the popup |
-| `text.barcode_01_popup_message` | text | Body message shown in the popup |
-| `text.barcode_01_popup_header` | text | Temporary top-bar title while shown |
-| `select.barcode_01_color_info_popup` | select | Temporary top-bar color while shown |
-| `switch.barcode_01_popup_yes` | switch | Set on when **Ja** is pressed (HA resets) |
-| `switch.barcode_01_popup_no` | switch | Set on when **Nee** is pressed (HA resets) |
+| `switch.barcode_0X_popup` | switch | Show / hide the popup |
+| `text.barcode_0X_popup_message` | text | Body message shown in the popup |
+| `text.barcode_0X_popup_header` | text | Temporary top-bar title while shown |
+| `select.barcode_0X_color_info_popup` | select | Temporary top-bar color while shown |
+| `switch.barcode_0X_popup_yes` | switch | Set on when **Ja** is pressed (HA resets) |
+| `switch.barcode_0X_popup_no` | switch | Set on when **Nee** is pressed (HA resets) |
+
+> Replace `0X` with `01` (Barcode-01) or `02` (Barcode-02).
 
 ## Hardware Reference
 
