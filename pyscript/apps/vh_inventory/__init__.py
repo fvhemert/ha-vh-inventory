@@ -19,6 +19,10 @@ NONE = "(none)"
 SIMILARITY_THRESHOLD = 70
 SIMILARITY_POPUP_HEADER = "Similar product found"
 SIMILARITY_MSG_TEMPLATE = "Is {scanned_product} similar to {matched_product}"
+# LVGL recolor hex (no leading #) applied to the {scanned_product}/{matched_product}
+# variables so they stand out in gold against the popup's dim-white base text.
+# Requires recolor: true on the scanner's lbl_popup_msg label.
+SIMILARITY_VAR_COLOR = "DBA85A"
 SIMILARITY_POPUP_DEVICE = "barcode-01"
 
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
@@ -1262,8 +1266,9 @@ def _check_shopping_similarity(scanned_name):
                           SIMILARITY_POPUP_HEADER)
     template = _helper_text("input_text.vh_similarity_msg",
                             SIMILARITY_MSG_TEMPLATE)
-    message = template.replace("{scanned_product}", scanned) \
-                      .replace("{matched_product}", best_name) \
+    gold = "#%s " % SIMILARITY_VAR_COLOR
+    message = template.replace("{scanned_product}", gold + scanned + "#") \
+                      .replace("{matched_product}", gold + best_name + "#") \
                       .replace("{cr}", "\n")
     dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)

@@ -11,12 +11,14 @@
 #     0.7.0   Added HA-controlled info popup (fullscreen overlay w/ Ja/Nee buttons readable from HA,
 #             configurable message + header text, temporary top-bar title/color via "Color Info Popup");
 #             migrated deprecated image: block to the new image 'platform: file' format
+#     0.7.1   Popup message text dimmed to soft white with recolor enabled, so the similarity
+#             popup's product-name variables stand out in contrasting gold
 #########################################################################################################################
 substitutions:
   name: "barcode-01"
   friendly_name: "barcode-01"
   project_name: 'Boodschappen scanner'
-  project_version: '0.7.0'
+  project_version: '0.7.1'
   # Ports for display
   dis_cs_pin: GPIO05        # Display board PIN 3
   dis_reset_pin: GPIO22     # Display board PIN 4
@@ -760,7 +762,8 @@ lvgl:
                 long_mode: wrap
                 text_align: CENTER
                 text_font: arial_font_20
-                text_color: 0xDBA85A
+                text_color: 0xCCCCCC      # Dim white base text
+                recolor: true             # Enable inline #RRGGBB codes (HA sends the product variables in gold)
             - button:                 # YES answer button
                 id: btn_popup_yes
                 align: BOTTOM_LEFT

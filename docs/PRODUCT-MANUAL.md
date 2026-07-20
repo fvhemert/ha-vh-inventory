@@ -429,7 +429,8 @@ under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere m
   products that share their core words score high even when the brand/prefix differs.
 - **Popup header** — the title shown on the pop-up. Default *Similar product found*.
 - **Similarity message** — the pop-up body text. Use the `{scanned_product}` placeholder for
-  the just-scanned product name and `{matched_product}` for the matching shopping-list item.
+  the just-scanned product name and `{matched_product}` for the matching shopping-list item;
+  both are shown in a contrasting **gold** colour against the dimmed-white message text.
   Insert `{cr}` anywhere to force a line break. Default *Is {scanned_product} similar to
   {matched_product}*.
 
