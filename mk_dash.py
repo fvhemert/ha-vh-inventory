@@ -1163,13 +1163,18 @@ _alt_stock_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": 
    "name": "Alternative-in-stock check", "icon": "mdi:swap-horizontal-bold"},
   {"entity": "input_number.vh_alt_stock_threshold",
    "name": "Alt-stock threshold", "icon": "mdi:swap-horizontal-bold"},
+  {"entity": "input_text.vh_alt_stock_popup_header",
+   "name": "Popup header", "icon": "mdi:message-alert"},
+  {"entity": "input_text.vh_alt_stock_msg",
+   "name": "Popup message", "icon": "mdi:message-text"},
   {"entity": "input_boolean.vh_tts_announce_alt_stock",
    "name": "Speak announcement", "icon": "mdi:bullhorn"},
   {"entity": "input_text.vh_tts_msg_alt_stock",
    "name": "Announcement message", "icon": "mdi:message-text"}]}
 
 _alt_stock_msg_hint = {"type": "markdown",
-  "content": "*Tip: use {scanned_product} and {alt_product}.*",
+  "content": "*Tip: popup uses {alt_product}, {alt_stock_qty}; announcement uses "
+             "{scanned_product}, {alt_product}; {cr} for a new line.*",
   "card_mod": HINT_CM}
 
 alt_stock_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [

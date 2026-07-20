@@ -36,6 +36,18 @@ SIMILARITY_POPUP_DEVICE = "barcode-01"
 # See _find_instock_alternative()/_alt_stock_threshold()/_alt_stock_enabled().
 ALT_STOCK_THRESHOLD = 90
 
+# Interactive alt-stock popup (SIMILARITY_POPUP_DEVICE): when the last unit of a
+# product is consumed and a similar product is still in stock, this popup asks
+# the user whether to add the scanned product to the shopping list anyway
+# (No = keep it off, Yes = add it). Header/message are read from HA helpers
+# (input_text.vh_alt_stock_popup_header, input_text.vh_alt_stock_msg) so they are
+# configurable on the Setup tab; these are FALLBACK defaults only. The message
+# supports {alt_product}, {alt_stock_qty}, {scanned_product} and {cr}; the
+# variables are gold-recolored (SIMILARITY_VAR_COLOR) like the similarity popup.
+ALT_STOCK_POPUP_HEADER = "Toevoegen?"
+ALT_STOCK_MSG_TEMPLATE = ("Van {alt_product} is de voorraad {alt_stock_qty}, "
+                          "toch toevoegen aan de boodschappenlijst?")
+
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
 HISTORY_RETENTION_MONTHS = 3    # history rows older than this are auto-purged
 
@@ -351,30 +363,57 @@ def _alt_stock_threshold():
 
 
 def _find_instock_alternative(conn, pid, pname):
-    """Return the name of an IN-STOCK product (total quantity > 0, different
-    product_id) whose name is similar to `pname` at or above the configured
-    alt-stock threshold, or None. Used when the last unit of a product is
-    consumed to offer an equivalent already on the shelf instead of re-adding it
-    to the shopping list. Uses the caller's open connection (read-only query)."""
+    """Return (name, total_qty) of an IN-STOCK product (total quantity > 0,
+    different product_id) whose name is similar to `pname` at or above the
+    configured alt-stock threshold, or None. Used when the last unit of a
+    product is consumed to offer an equivalent already on the shelf. Uses the
+    caller's open connection (read-only query)."""
     if not (pname or "").strip():
         return None
     threshold = _alt_stock_threshold()
     rows = conn.execute(
-        "SELECT p.name FROM products p "
+        "SELECT p.name, COALESCE(SUM(s.quantity), 0) AS q FROM products p "
         "JOIN stock s ON s.product_id = p.id "
         "WHERE p.id != ? "
         "GROUP BY p.id HAVING COALESCE(SUM(s.quantity), 0) > 0", [pid]).fetchall()
-    best_name, best_score = None, 0.0
+    best_name, best_qty, best_score = None, 0, 0.0
     for r in rows:
         oname = (r[0] or "").strip()
         if not oname:
             continue
         score = _name_similarity(pname, oname)
         if score > best_score:
-            best_name, best_score = oname, score
+            best_name, best_qty, best_score = oname, int(r[1] or 0), score
     if best_name is not None and best_score >= threshold:
-        return best_name
+        return (best_name, best_qty)
     return None
+
+
+def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty):
+    """Raise the interactive alt-stock info popup on SIMILARITY_POPUP_DEVICE
+    asking whether to add the just-emptied product to the shopping list even
+    though a similar product (`alt_name`, `alt_qty` in stock) is on the shelf.
+    Header/message come from HA helpers (configurable on the Setup tab) with the
+    module constants as fallback; the {alt_product}/{alt_stock_qty}/
+    {scanned_product} variables are gold-recolored and {cr} becomes a newline.
+    Remembers the popup context in pyscript state entities so the popup's Yes
+    (vh_inventory_popup_confirm) adds this product and No
+    (vh_inventory_popup_dismiss) keeps it off the list."""
+    header = _helper_text("input_text.vh_alt_stock_popup_header",
+                          ALT_STOCK_POPUP_HEADER)
+    template = _helper_text("input_text.vh_alt_stock_msg", ALT_STOCK_MSG_TEMPLATE)
+    gold = "#%s " % SIMILARITY_VAR_COLOR
+    message = template.replace("{alt_product}", gold + (alt_name or "") + "#") \
+                      .replace("{alt_stock_qty}", gold + str(alt_qty) + "#") \
+                      .replace("{scanned_product}", gold + (pname or "") + "#") \
+                      .replace("{cr}", "\n")
+    dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
+    state.set("pyscript.vh_popup_kind", "alt_stock")
+    state.set("pyscript.vh_altstock_pid", str(pid))
+    state.set("pyscript.vh_altstock_alt", alt_name or "")
+    text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
+    text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
+    switch.turn_on(entity_id="switch.%s_popup" % dev)
 
 
 def _reconcile_shopping(before, after):
@@ -413,22 +452,25 @@ def _reconcile_shopping(before, after):
                     continue
                 enabled, threshold, add_qty = info
                 if enabled and threshold and a < threshold and pid not in on_list:
-                    alt_name, pname = None, ""
+                    alt, pname = None, ""
                     if a == 0 and _alt_stock_enabled():
                         prow = conn.execute(
                             "SELECT name FROM products WHERE id=?", [pid]).fetchone()
                         pname = (prow[0] if prow else "") or ""
-                        alt_name = _find_instock_alternative(conn, pid, pname)
-                    if alt_name:
+                        alt = _find_instock_alternative(conn, pid, pname)
+                    if alt:
                         # Last unit consumed but a similar product is in stock:
-                        # do NOT add to the shopping list; announce the
-                        # alternative instead.
+                        # do NOT auto-add. Raise the interactive popup asking the
+                        # user whether to add it anyway, and announce (TTS) the
+                        # in-stock alternative.
+                        alt_name, alt_qty = alt
                         _hist_row(conn, "alt-in-stock", "shopping_list", pid,
-                                  "Last unit of product_id=%d consumed; '%s' in "
-                                  "stock -> not added to shopping list"
-                                  % (pid, alt_name))
+                                  "Use-scan last unit of '%s'; '%s' (stock %d) in "
+                                  "stock -> popup asking whether to add to "
+                                  "shopping list" % (pname, alt_name, alt_qty))
                         changed = True
                         _announce_alt_stock(pname, alt_name)
+                        _raise_alt_stock_popup(pid, pname, alt_name, alt_qty)
                     else:
                         conn.execute(
                             "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
@@ -1387,6 +1429,7 @@ def _check_shopping_similarity(scanned_name):
             break
     state.set("pyscript.vh_similarity_match_pid",
               str(best_pid) if best_pid is not None else "")
+    state.set("pyscript.vh_popup_kind", "similarity")
     dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
@@ -2018,24 +2061,133 @@ def vh_inventory_similarity_confirm():
     """Similarity popup 'Yes' pressed: the scanned product is the same as the
     matched shopping-list product, so remove that matched product from the
     shopping list. The matched product_id was remembered in the
-    pyscript.vh_similarity_match_pid state entity when the popup was raised."""
+    pyscript.vh_similarity_match_pid state entity when the popup was raised.
+    Kept as a stable service name; delegates to _similarity_confirm()."""
+    _similarity_confirm()
+
+
+def _popup_kind():
+    """Current barcode-01 info-popup context ('similarity' | 'alt_stock' | '')
+    remembered in pyscript.vh_popup_kind when a popup was raised. Lets the shared
+    Yes/No buttons dispatch to the right action."""
+    try:
+        k = str(state.get("pyscript.vh_popup_kind")).strip()
+    except Exception:
+        k = ""
+    if k in ("unknown", "unavailable", "None"):
+        k = ""
+    return k
+
+
+def _clear_popup_context():
+    """Reset all remembered info-popup context state entities."""
+    state.set("pyscript.vh_popup_kind", "")
+    state.set("pyscript.vh_similarity_match_pid", "")
+    state.set("pyscript.vh_altstock_pid", "")
+    state.set("pyscript.vh_altstock_alt", "")
+
+
+def _similarity_confirm():
+    """Similarity 'Yes': remove the remembered matched shopping-list product."""
     try:
         raw = str(state.get("pyscript.vh_similarity_match_pid")).strip()
     except Exception:
         raw = ""
     if not raw or raw in ("unknown", "unavailable", "None"):
-        log.warning("vh_inventory_similarity_confirm: no remembered matched product")
+        log.warning("_similarity_confirm: no remembered matched product")
         return
     try:
         pid = int(float(raw))
     except Exception:
-        log.warning("vh_inventory_similarity_confirm: bad matched pid %r" % raw)
+        log.warning("_similarity_confirm: bad matched pid %r" % raw)
         return
     _exec("DELETE FROM shopping_list WHERE product_id=?", [pid])
     _log_history("remove", "shopping_list", None,
                  "Similarity Yes: removed matched product_id=%d from shopping list"
                  % pid)
     state.set("pyscript.vh_similarity_match_pid", "")
+
+
+def _alt_stock_confirm():
+    """Alt-stock 'Yes': add the remembered just-emptied product to the shopping
+    list anyway (even though a similar product is in stock)."""
+    try:
+        raw = str(state.get("pyscript.vh_altstock_pid")).strip()
+    except Exception:
+        raw = ""
+    try:
+        alt = str(state.get("pyscript.vh_altstock_alt")).strip()
+    except Exception:
+        alt = ""
+    if not raw or raw in ("unknown", "unavailable", "None"):
+        log.warning("_alt_stock_confirm: no remembered alt-stock product")
+        return
+    try:
+        pid = int(float(raw))
+    except Exception:
+        log.warning("_alt_stock_confirm: bad alt-stock pid %r" % raw)
+        return
+    prow = _fetch_one_sql("SELECT name,auto_add_quantity FROM products WHERE id=?",
+                          [pid])
+    name = (prow or {}).get("name") or ("id=%d" % pid)
+    qty = int((prow or {}).get("auto_add_quantity") or 1)
+    exists = _fetch_one_sql("SELECT id FROM shopping_list WHERE product_id=?", [pid])
+    if not exists:
+        _exec("INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
+              [pid, qty])
+    _log_history("alt-add", "shopping_list", pid,
+                 "Alt-stock Yes: added '%s' to shopping list (alternative '%s' "
+                 "in stock)" % (name, alt))
+
+
+def _alt_stock_dismiss():
+    """Alt-stock 'No': the just-emptied product stays off the shopping list
+    (it already was); record the decision in history."""
+    try:
+        raw = str(state.get("pyscript.vh_altstock_pid")).strip()
+    except Exception:
+        raw = ""
+    try:
+        alt = str(state.get("pyscript.vh_altstock_alt")).strip()
+    except Exception:
+        alt = ""
+    pid = None
+    if raw and raw not in ("unknown", "unavailable", "None"):
+        try:
+            pid = int(float(raw))
+        except Exception:
+            pid = None
+    name = "?"
+    if pid is not None:
+        prow = _fetch_one_sql("SELECT name FROM products WHERE id=?", [pid])
+        name = (prow or {}).get("name") or ("id=%d" % pid)
+    _log_history("alt-keep", "shopping_list", pid,
+                 "Alt-stock No: '%s' kept off shopping list (alternative '%s' "
+                 "available)" % (name, alt))
+
+
+@service
+def vh_inventory_popup_confirm():
+    """barcode-01 info-popup 'Yes' pressed. Dispatch by popup kind: for the
+    Add-mode similarity popup remove the matched product; for the Use-mode
+    alt-stock popup add the just-emptied product to the shopping list."""
+    kind = _popup_kind()
+    if kind == "alt_stock":
+        _alt_stock_confirm()
+    else:
+        _similarity_confirm()
+    _clear_popup_context()
+
+
+@service
+def vh_inventory_popup_dismiss():
+    """barcode-01 info-popup 'No' pressed. Dispatch by popup kind: the alt-stock
+    popup records that the product was kept off the list; the similarity popup is
+    simply dismissed. Context is cleared either way."""
+    kind = _popup_kind()
+    if kind == "alt_stock":
+        _alt_stock_dismiss()
+    _clear_popup_context()
 
 
 @service

@@ -135,6 +135,8 @@
   "Alternative in stock": "Alternative in stock",
   "Alternative-in-stock check": "Alternative-in-stock check",
   "Alt-stock threshold": "Alt-stock threshold",
+  "Popup message": "Popup message",
   "Tip: use {scanned_product} and {alt_product}.": "Tip: use {scanned_product} and {alt_product}.",
+  "Tip: popup uses {alt_product}, {alt_stock_qty}; announcement uses {scanned_product}, {alt_product}; {cr} for a new line.": "Tip: popup uses {alt_product}, {alt_stock_qty}; announcement uses {scanned_product}, {alt_product}; {cr} for a new line.",
   "ID": "ID"
 }

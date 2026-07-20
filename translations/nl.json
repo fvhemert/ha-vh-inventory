@@ -135,6 +135,8 @@
   "Alternative in stock": "Alternatief op voorraad",
   "Alternative-in-stock check": "Alternatief-op-voorraad controle",
   "Alt-stock threshold": "Alternatief-drempel",
+  "Popup message": "Popup-bericht",
   "Tip: use {scanned_product} and {alt_product}.": "Tip: gebruik {scanned_product} en {alt_product}.",
+  "Tip: popup uses {alt_product}, {alt_stock_qty}; announcement uses {scanned_product}, {alt_product}; {cr} for a new line.": "Tip: popup gebruikt {alt_product}, {alt_stock_qty}; aankondiging gebruikt {scanned_product}, {alt_product}; {cr} voor een nieuwe regel.",
   "ID": "ID"
 }

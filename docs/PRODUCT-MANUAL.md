@@ -457,24 +457,41 @@ When a product is scanned in **Use** mode and this consumes its **last unit** (s
 equivalent product on the shelf that was simply bought under a different barcode/brand. To
 avoid buying more than you need, the *Alternative in stock* check compares the just-emptied
 product's name against everything **still in stock**. If a close enough match is found, the
-product is **not** added to the shopping list and a spoken announcement offers the in-stock
-alternative instead. The stock decrement always happens as normal.
+product is **not** added automatically. Instead an **interactive Info Popup** is raised on
+barcode-01 asking whether to add it to the shopping list anyway, and a spoken announcement
+offers the in-stock alternative. The stock decrement always happens as normal.
+
+The popup has two buttons:
+
+- **No** (Nee) — keep the product **off** the shopping list (the default). The popup closes
+  and the decision is logged to History (`alt-keep`).
+- **Yes** (Ja) — add the just-emptied product to the shopping list after all. The popup closes
+  and the add is logged to History (`alt-add`).
+
+> The popup reuses barcode-01's shared Yes/No buttons. The backend remembers which popup is
+> showing (Add-mode *similar product* vs Use-mode *alternative in stock*) so each button does
+> the right thing.
 
 - **Alternative-in-stock check** — master on/off for this behaviour. Default **on**.
 - **Alt-stock threshold** — the minimum match score (0–100 %) required to treat an in-stock
   product as an equivalent. Default `90` — deliberately higher than the Add-mode similarity
-  threshold, because a false match here would silently keep a genuinely-needed product off
-  your shopping list. Uses the same hybrid name scorer.
+  threshold, because a false match here would keep a genuinely-needed product off your
+  shopping list unless you tap Yes. Uses the same hybrid name scorer.
+- **Popup header** — the temporary title shown on the barcode-01 popup. Default *Toevoegen?*
+- **Popup message** — the popup body text. Use `{alt_product}` for the in-stock alternative
+  and `{alt_stock_qty}` for how many of it are in stock; `{cr}` forces a new line. These
+  variables are highlighted in gold. Default *Van {alt_product} is de voorraad
+  {alt_stock_qty}, toch toevoegen aan de boodschappenlijst?*
 - **Speak announcement** — optional on/off toggle for the spoken prompt, played fully
   decoupled from the scan. Also requires the master *Announcements enabled* switch.
 - **Announcement message** — the spoken text. Use `{scanned_product}` for the emptied product
   and `{alt_product}` for the in-stock alternative. Default *Dit was het laatste item
   {scanned_product}, maar er is nog {alt_product} op voorraad die je kunt gebruiken.*
 
-Every suppressed shopping-add is recorded in the History log (`alt-in-stock`) so the
-behaviour is fully auditable. This is name-similarity based (phase 1); explicit
-product-alternative links may be added later for cross-brand alternatives that do not share
-words (e.g. different product names entirely).
+Every step is recorded in the History log (`alt-in-stock` when the popup is raised, `alt-add`
+on Yes, `alt-keep` on No) so the behaviour is fully auditable. This is name-similarity based
+(phase 1); explicit product-alternative links may be added later for cross-brand alternatives
+that do not share words (e.g. different product names entirely).
 
 ---
 

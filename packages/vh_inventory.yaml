@@ -73,6 +73,14 @@ input_text:
     name: VH TTS Message Alt In Stock
     max: 255
     icon: mdi:message-text
+  vh_alt_stock_popup_header:
+    name: VH Alt Stock Popup Header
+    max: 255
+    icon: mdi:message-alert
+  vh_alt_stock_msg:
+    name: VH Alt Stock Message
+    max: 255
+    icon: mdi:message-text
   vh_notify_devices:
     name: VH Notify Devices
     max: 255
@@ -1007,16 +1015,19 @@ automation:
     alias: VH Inventory - Popup Yes button (barcode-01)
     description: >-
       When barcode-01's popup "Yes" button is pressed
-      (switch.barcode_01_popup_yes turns on), remove the matched product from the
-      shopping list (pyscript.vh_inventory_similarity_confirm), close the info
-      popup (switch.barcode_01_popup off) and reset the Yes switch back off.
+      (switch.barcode_01_popup_yes turns on), run the context-aware confirm
+      handler (pyscript.vh_inventory_popup_confirm): for the Add-mode similarity
+      popup it removes the matched product from the shopping list; for the
+      Use-mode alt-stock popup it adds the just-emptied product to the shopping
+      list. Then close the info popup (switch.barcode_01_popup off) and reset the
+      Yes switch back off.
     mode: single
     triggers:
       - trigger: state
         entity_id: switch.barcode_01_popup_yes
         to: "on"
     actions:
-      - service: pyscript.vh_inventory_similarity_confirm
+      - service: pyscript.vh_inventory_popup_confirm
       - service: switch.turn_off
         target:
           entity_id:
@@ -1027,14 +1038,17 @@ automation:
     alias: VH Inventory - Popup No button (barcode-01)
     description: >-
       When barcode-01's popup "No" button is pressed
-      (switch.barcode_01_popup_no turns on), close the info popup
-      (switch.barcode_01_popup off) and reset the No switch back off.
+      (switch.barcode_01_popup_no turns on), run the context-aware dismiss
+      handler (pyscript.vh_inventory_popup_dismiss) — for the alt-stock popup it
+      records that the product was kept off the shopping list — then close the
+      info popup (switch.barcode_01_popup off) and reset the No switch back off.
     mode: single
     triggers:
       - trigger: state
         entity_id: switch.barcode_01_popup_no
         to: "on"
     actions:
+      - service: pyscript.vh_inventory_popup_dismiss
       - service: switch.turn_off
         target:
           entity_id:
@@ -1312,6 +1326,22 @@ automation:
             {{ 'Is {scanned_product} similar to {matched_product}'
                if states('input_text.vh_similarity_msg') in ['unknown', 'unavailable', '']
                else states('input_text.vh_similarity_msg') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_alt_stock_popup_header
+        data:
+          value: >-
+            {{ 'Toevoegen?'
+               if states('input_text.vh_alt_stock_popup_header') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_alt_stock_popup_header') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_alt_stock_msg
+        data:
+          value: >-
+            {{ 'Van {alt_product} is de voorraad {alt_stock_qty}, toch toevoegen aan de boodschappenlijst?'
+               if states('input_text.vh_alt_stock_msg') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_alt_stock_msg') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_notify_msg_shopping_add
