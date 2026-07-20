@@ -1,11 +1,19 @@
 import sqlite3
 import datetime
 import json
+from difflib import SequenceMatcher
 
 import requests
 
 DB_PATH = "/config/vh_inventory.db"
 NONE = "(none)"
+
+# When an Add-mode scan resolves to a product name, it is compared against the
+# names already on the shopping list. A best match at or above this score
+# (0-100) raises the informative "Similar product found" popup on the scanner
+# below (SIMILARITY_POPUP_DEVICE). See _check_shopping_similarity().
+SIMILARITY_THRESHOLD = 90
+SIMILARITY_POPUP_DEVICE = "barcode-01"
 
 HISTORY_DISPLAY_LIMIT = 50      # rows surfaced by sensor.vh_inventory_history
 HISTORY_RETENTION_MONTHS = 3    # history rows older than this are auto-purged
@@ -647,6 +655,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
                 _add_inventory_qty(pid, 1)
                 nm, mf = _product_name_mfr(pid)
                 _update_scanner_display(device, nm, mf, _total_stock(pid))
+                _check_shopping_similarity(nm)
                 _delete_scan_queue_row(rid, action, "Exist")
                 return "add"
         # Case 3: Use + Exist -> decrement stock (product in inventory) or, when
@@ -675,6 +684,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             _add_inventory_qty(pid, 1)
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
+            _check_shopping_similarity(nm)
             _delete_scan_queue_row(rid, action, "New")
             return "add"
     # Case 4: Use + New -> create product (same settings) and put it on the
@@ -1144,6 +1154,62 @@ def _update_scanner_display(device, name, description, qty):
     text.set_value(entity_id="text.%s_product_name" % dev, value=nm)
     text.set_value(entity_id="text.%s_product_description" % dev, value=ds)
     text.set_value(entity_id="text.%s_stock" % dev, value=qt)
+
+
+def _shopping_product_names():
+    """Names of the products currently on the shopping list (non-empty,
+    de-duplicated while preserving order). Used to look for a product similar to
+    a freshly scanned one."""
+    seen = set()
+    names = []
+    for entry in _load_shopping():
+        nm = (entry.get("product") or "").strip()
+        if nm and nm.lower() not in seen:
+            seen.add(nm.lower())
+            names.append(nm)
+    return names
+
+
+def _name_similarity(a, b):
+    """Similarity score (0-100) between two product names, case-insensitive.
+    Isolated here so the scoring engine can be swapped later (e.g. RapidFuzz or
+    sentence-transformer embeddings) without changing the popup wiring. First
+    step uses difflib (Python stdlib), which is character-based."""
+    a = (a or "").strip().lower()
+    b = (b or "").strip().lower()
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio() * 100.0
+
+
+def _check_shopping_similarity(scanned_name):
+    """After an Add-mode scan resolves to `scanned_name`, look for a product
+    already on the shopping list whose name is similar (>= SIMILARITY_THRESHOLD).
+    If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE asking the
+    user whether the two are the same product. Exact-name matches are skipped
+    (they are the same product, not merely a similar one). The popup's Yes/No
+    buttons are not acted on yet - this only shows the prompt."""
+    scanned = (scanned_name or "").strip()
+    if not scanned:
+        return
+    best_name, best_score = None, 0.0
+    for cand in _shopping_product_names():
+        if cand.strip().lower() == scanned.lower():
+            continue
+        score = _name_similarity(scanned, cand)
+        if score > best_score:
+            best_name, best_score = cand, score
+    if best_name is None or best_score < SIMILARITY_THRESHOLD:
+        return
+    dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
+    text.set_value(entity_id="text.%s_popup_header" % dev,
+                   value="Similar product found")
+    text.set_value(entity_id="text.%s_popup_message" % dev,
+                   value="Is %s similar to %s" % (scanned, best_name))
+    switch.turn_on(entity_id="switch.%s_popup" % dev)
+    _log_history("similar", "shopping_list", None,
+                 "Add-scan '%s' ~ shopping '%s' (%.0f%%) -> popup"
+                 % (scanned, best_name, best_score))
 
 
 # ---------- ONLINE BARCODE RESOLUTION ----------
