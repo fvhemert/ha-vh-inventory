@@ -20,3 +20,10 @@ esphome/backups/
 # Python
 __pycache__/
 *.pyc
+
+# Secrets & live config (NEVER commit — real values live only on the HA server)
+secrets.yaml
+**/secrets.yaml
+configuration.yaml
+!configuration.example.yaml
+!secrets.example.yaml
