@@ -985,6 +985,24 @@ automation:
             - switch.barcode_01_print_inventory_list
             - switch.barcode_02_print_inventory_list
 
+  - id: vh_inventory_popup_no
+    alias: VH Inventory - Popup No button (barcode-01)
+    description: >-
+      When barcode-01's popup "No" button is pressed
+      (switch.barcode_01_popup_no turns on), close the info popup
+      (switch.barcode_01_popup off) and reset the No switch back off.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: switch.barcode_01_popup_no
+        to: "on"
+    actions:
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.barcode_01_popup
+            - switch.barcode_01_popup_no
+
   - id: vh_inventory_announce
     alias: VH Inventory - TTS Announcement
     description: >-
