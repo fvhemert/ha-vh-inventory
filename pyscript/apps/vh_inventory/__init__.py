@@ -1186,8 +1186,8 @@ def _token_set_ratio(a, b):
     if not inter:
         return _ratio(" ".join(ta), " ".join(tb))
     s_inter = " ".join(inter)
-    s_a = (s_inter + " " + " ".join(w for w in ta if w not in inter)).strip()
-    s_b = (s_inter + " " + " ".join(w for w in tb if w not in inter)).strip()
+    s_a = (s_inter + " " + " ".join([w for w in ta if w not in inter])).strip()
+    s_b = (s_inter + " " + " ".join([w for w in tb if w not in inter])).strip()
     return max(_ratio(s_inter, s_a), _ratio(s_inter, s_b), _ratio(s_a, s_b))
 
 
