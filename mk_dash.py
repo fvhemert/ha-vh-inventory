@@ -1142,7 +1142,7 @@ _similarity_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities":
    "name": "Similarity message", "icon": "mdi:message-text"}]}
 
 _similarity_msg_hint = {"type": "markdown",
-  "content": "*Tip: use {scanned_product} and {matched_product} in the message.*",
+  "content": "*Tip: use {scanned_product} and {matched_product}; {cr} for a new line.*",
   "card_mod": HINT_CM}
 
 similarity_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [

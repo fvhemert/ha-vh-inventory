@@ -1263,7 +1263,8 @@ def _check_shopping_similarity(scanned_name):
     template = _helper_text("input_text.vh_similarity_msg",
                             SIMILARITY_MSG_TEMPLATE)
     message = template.replace("{scanned_product}", scanned) \
-                      .replace("{matched_product}", best_name)
+                      .replace("{matched_product}", best_name) \
+                      .replace("{cr}", "\n")
     dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)

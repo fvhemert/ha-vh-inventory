@@ -430,7 +430,8 @@ under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere m
 - **Popup header** — the title shown on the pop-up. Default *Similar product found*.
 - **Similarity message** — the pop-up body text. Use the `{scanned_product}` placeholder for
   the just-scanned product name and `{matched_product}` for the matching shopping-list item.
-  Default *Is {scanned_product} similar to {matched_product}*.
+  Insert `{cr}` anywhere to force a line break. Default *Is {scanned_product} similar to
+  {matched_product}*.
 
 The pop-up's **Yes/No** buttons are readable from Home Assistant but are not acted on yet —
 this step only surfaces the prompt.
