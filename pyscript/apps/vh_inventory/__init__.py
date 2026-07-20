@@ -23,7 +23,14 @@ SIMILARITY_MSG_TEMPLATE = "Is {scanned_product} similar to {matched_product}"
 # variables so they stand out in gold against the popup's dim-white base text.
 # Requires recolor: true on the scanner's lbl_popup_msg label.
 SIMILARITY_VAR_COLOR = "DBA85A"
+# Default popup target used only as a FALLBACK when the scan carries no device
+# (e.g. dashboard-triggered stock changes). Live popups appear on whichever
+# large-screen scanner did the scan - see _resolve_popup_device().
 SIMILARITY_POPUP_DEVICE = "barcode-01"
+# Large-screen scanners that expose the info-popup entities (text.<dev>_popup_*,
+# switch.<dev>_popup[/_yes/_no]). The small printer scanner (scanner-01) has NO
+# popup and is intentionally excluded.
+POPUP_DEVICES = ("barcode-01", "barcode-02")
 
 # When the LAST unit of a product is consumed (a Use scan brings its stock to 0),
 # its name is compared against the products still IN STOCK. A best match at or
@@ -389,6 +396,17 @@ def _find_instock_alternative(conn, pid, pname):
     return None
 
 
+def _resolve_popup_device(device):
+    """Normalise a scanning-device id to a popup-capable large-screen scanner
+    ('barcode-01' or 'barcode-02'). Unknown/missing devices fall back to
+    SIMILARITY_POPUP_DEVICE so popups still appear for stock changes that carry
+    no scanning device (e.g. dashboard edits). Returns a hyphenated id."""
+    d = (device or "").strip().lower().replace("_", "-")
+    if d in POPUP_DEVICES:
+        return d
+    return SIMILARITY_POPUP_DEVICE
+
+
 def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty):
     """Raise the interactive alt-stock info popup on SIMILARITY_POPUP_DEVICE
     asking whether to add the just-emptied product to the shopping list even
@@ -407,7 +425,11 @@ def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty):
                       .replace("{alt_stock_qty}", gold + str(alt_qty) + "#") \
                       .replace("{scanned_product}", gold + (pname or "") + "#") \
                       .replace("{cr}", "\n")
-    dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
+    try:
+        scan_dev = str(state.get("pyscript.vh_scan_device"))
+    except Exception:
+        scan_dev = ""
+    dev = _resolve_popup_device(scan_dev).replace("-", "_")
     state.set("pyscript.vh_popup_kind", "alt_stock")
     state.set("pyscript.vh_altstock_pid", str(pid))
     state.set("pyscript.vh_altstock_alt", alt_name or "")
@@ -801,6 +823,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
     bc = ("" if barcode is None else str(barcode)).strip()
     if not bc:
         return None
+    state.set("pyscript.vh_scan_device", device or "")
     exists = bc.isdigit() and _fetch_one_sql(
         "SELECT 1 FROM products WHERE barcode=?", [int(bc)]) is not None
     if exists:
@@ -815,7 +838,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
                 _add_inventory_qty(pid, 1)
                 nm, mf = _product_name_mfr(pid)
                 _update_scanner_display(device, nm, mf, _total_stock(pid))
-                _check_shopping_similarity(nm)
+                _check_shopping_similarity(nm, device)
                 _delete_scan_queue_row(rid, action, "Exist")
                 return "add"
         # Case 3: Use + Exist -> decrement stock (product in inventory) or, when
@@ -844,7 +867,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
             _add_inventory_qty(pid, 1)
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
-            _check_shopping_similarity(nm)
+            _check_shopping_similarity(nm, device)
             _delete_scan_queue_row(rid, action, "New")
             return "add"
     # Case 4: Use + New -> create product (same settings) and put it on the
@@ -1389,7 +1412,7 @@ def _helper_text(entity_id, fallback):
     return v
 
 
-def _check_shopping_similarity(scanned_name):
+def _check_shopping_similarity(scanned_name, device=None):
     """After an Add-mode scan resolves to `scanned_name`, look for a product
     already on the shopping list whose name is similar (>= the configured
     threshold). If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE
@@ -1430,7 +1453,7 @@ def _check_shopping_similarity(scanned_name):
     state.set("pyscript.vh_similarity_match_pid",
               str(best_pid) if best_pid is not None else "")
     state.set("pyscript.vh_popup_kind", "similarity")
-    dev = SIMILARITY_POPUP_DEVICE.replace("-", "_")
+    dev = _resolve_popup_device(device).replace("-", "_")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
     switch.turn_on(entity_id="switch.%s_popup" % dev)
@@ -2085,6 +2108,7 @@ def _clear_popup_context():
     state.set("pyscript.vh_similarity_match_pid", "")
     state.set("pyscript.vh_altstock_pid", "")
     state.set("pyscript.vh_altstock_alt", "")
+    state.set("pyscript.vh_scan_device", "")
 
 
 def _similarity_confirm():

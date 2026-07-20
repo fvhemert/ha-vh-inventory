@@ -419,7 +419,8 @@ handheld-specific notification messages.
 
 When a product is scanned in **Add** mode, its resolved name is compared against the products
 already on the shopping list. If a close match is found, an informative pop-up is raised on
-the large-screen scanner (`barcode-01`) asking whether the scanned item is the same product
+the large-screen scanner that did the scan (`barcode-01` or `barcode-02`) asking whether the
+scanned item is the same product
 bought in a different shop. This helps avoid creating duplicate entries for the same product
 under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere melk*).
 
@@ -437,7 +438,8 @@ under slightly different names (e.g. *Campina magere melk* vs *Houdbare magere m
 The pop-up's **Yes** button confirms the scanned product is the same as the matched
 shopping-list product and **removes that matched product from the shopping list**;
 **No** simply dismisses the pop-up. Both buttons also close the pop-up and reset
-themselves. (Only `barcode-01` is wired up.)
+themselves. (Works on both large-screen scanners, `barcode-01` and `barcode-02`; the popup
+appears on whichever one did the scan.)
 
 - **Speak announcement** — optional on/off toggle. When on, a spoken TTS prompt is played
   **together with** the pop-up (but fully decoupled, so it never delays scanning) through the
@@ -458,7 +460,8 @@ equivalent product on the shelf that was simply bought under a different barcode
 avoid buying more than you need, the *Alternative in stock* check compares the just-emptied
 product's name against everything **still in stock**. If a close enough match is found, the
 product is **not** added automatically. Instead an **interactive Info Popup** is raised on
-barcode-01 asking whether to add it to the shopping list anyway, and a spoken announcement
+the large-screen scanner that did the scan (`barcode-01` or `barcode-02`) asking whether to
+add it to the shopping list anyway, and a spoken announcement
 offers the in-stock alternative. The stock decrement always happens as normal.
 
 The popup has two buttons:
@@ -468,7 +471,7 @@ The popup has two buttons:
 - **Yes** (Ja) — add the just-emptied product to the shopping list after all. The popup closes
   and the add is logged to History (`alt-add`).
 
-> The popup reuses barcode-01's shared Yes/No buttons. The backend remembers which popup is
+> The popup reuses each scanner's shared Yes/No buttons. The backend remembers which popup is
 > showing (Add-mode *similar product* vs Use-mode *alternative in stock*) so each button does
 > the right thing.
 
@@ -477,7 +480,7 @@ The popup has two buttons:
   product as an equivalent. Default `90` — deliberately higher than the Add-mode similarity
   threshold, because a false match here would keep a genuinely-needed product off your
   shopping list unless you tap Yes. Uses the same hybrid name scorer.
-- **Popup header** — the temporary title shown on the barcode-01 popup. Default *Toevoegen?*
+- **Popup header** — the temporary title shown on the popup. Default *Toevoegen?*
 - **Popup message** — the popup body text. Use `{alt_product}` for the in-stock alternative
   and `{alt_stock_qty}` for how many of it are in stock; `{cr}` forces a new line. These
   variables are highlighted in gold. Default *Van {alt_product} is de voorraad

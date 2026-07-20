@@ -1012,48 +1012,53 @@ automation:
             - switch.barcode_02_print_inventory_list
 
   - id: vh_inventory_popup_yes
-    alias: VH Inventory - Popup Yes button (barcode-01)
+    alias: VH Inventory - Popup Yes button (barcode-01/02)
     description: >-
-      When barcode-01's popup "Yes" button is pressed
-      (switch.barcode_01_popup_yes turns on), run the context-aware confirm
-      handler (pyscript.vh_inventory_popup_confirm): for the Add-mode similarity
-      popup it removes the matched product from the shopping list; for the
-      Use-mode alt-stock popup it adds the just-emptied product to the shopping
-      list. Then close the info popup (switch.barcode_01_popup off) and reset the
-      Yes switch back off.
+      When either large-screen scanner's popup "Yes" button is pressed
+      (switch.barcode_01_popup_yes or switch.barcode_02_popup_yes turns on), run
+      the context-aware confirm handler (pyscript.vh_inventory_popup_confirm):
+      for the Add-mode similarity popup it removes the matched product from the
+      shopping list; for the Use-mode alt-stock popup it adds the just-emptied
+      product to the shopping list. Then close the info popup on the scanner that
+      fired (switch.<dev>_popup off) and reset that scanner's Yes switch back off.
     mode: single
     triggers:
       - trigger: state
-        entity_id: switch.barcode_01_popup_yes
+        entity_id:
+          - switch.barcode_01_popup_yes
+          - switch.barcode_02_popup_yes
         to: "on"
     actions:
       - service: pyscript.vh_inventory_popup_confirm
       - service: switch.turn_off
         target:
           entity_id:
-            - switch.barcode_01_popup
-            - switch.barcode_01_popup_yes
+            - "{{ trigger.entity_id | replace('_popup_yes', '_popup') }}"
+            - "{{ trigger.entity_id }}"
 
   - id: vh_inventory_popup_no
-    alias: VH Inventory - Popup No button (barcode-01)
+    alias: VH Inventory - Popup No button (barcode-01/02)
     description: >-
-      When barcode-01's popup "No" button is pressed
-      (switch.barcode_01_popup_no turns on), run the context-aware dismiss
-      handler (pyscript.vh_inventory_popup_dismiss) — for the alt-stock popup it
-      records that the product was kept off the shopping list — then close the
-      info popup (switch.barcode_01_popup off) and reset the No switch back off.
+      When either large-screen scanner's popup "No" button is pressed
+      (switch.barcode_01_popup_no or switch.barcode_02_popup_no turns on), run
+      the context-aware dismiss handler (pyscript.vh_inventory_popup_dismiss) —
+      for the alt-stock popup it records that the product was kept off the
+      shopping list — then close the info popup on the scanner that fired
+      (switch.<dev>_popup off) and reset that scanner's No switch back off.
     mode: single
     triggers:
       - trigger: state
-        entity_id: switch.barcode_01_popup_no
+        entity_id:
+          - switch.barcode_01_popup_no
+          - switch.barcode_02_popup_no
         to: "on"
     actions:
       - service: pyscript.vh_inventory_popup_dismiss
       - service: switch.turn_off
         target:
           entity_id:
-            - switch.barcode_01_popup
-            - switch.barcode_01_popup_no
+            - "{{ trigger.entity_id | replace('_popup_no', '_popup') }}"
+            - "{{ trigger.entity_id }}"
 
   - id: vh_inventory_announce
     alias: VH Inventory - TTS Announcement
