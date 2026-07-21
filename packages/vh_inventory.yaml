@@ -1150,6 +1150,7 @@ automation:
       scanned: "{{ trigger.event.data.scanned | default('') | trim }}"
       matched: "{{ trigger.event.data.matched | default('') | trim }}"
       alt: "{{ trigger.event.data.alt | default('') | trim }}"
+      alt_qty: "{{ trigger.event.data.alt_qty | default('') }}"
       message: >-
         {% if trigger.event.data.kind == 'scan_unresolved' %}
         {% set t = states('input_text.vh_tts_msg_scan_unresolved') %}
@@ -1175,7 +1176,7 @@ automation:
         {% if t in ['', 'unknown', 'unavailable'] %}
         {% set t = 'Dit was het laatste item {scanned_product}, maar er is nog {alt_product} op voorraad die je kunt gebruiken.' %}
         {% endif %}
-        {{ t | replace('{scanned_product}', scanned) | replace('{alt_product}', alt) }}
+        {{ t | replace('{scanned_product}', scanned) | replace('{alt_product}', alt) | replace('{alt_stock_qty}', alt_qty | string) }}
         {% else %}
         {% set t = states('input_text.vh_tts_msg_shopping_add') %}
         {% if t in ['', 'unknown', 'unavailable'] %}

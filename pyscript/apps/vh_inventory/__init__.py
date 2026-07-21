@@ -549,7 +549,7 @@ def _reconcile_shopping(before, after):
                                                      alt_meta.get("confidence"),
                                                      alt_meta.get("elapsed_ms"))))
                         changed = True
-                        _announce_alt_stock(pname, alt_name)
+                        _announce_alt_stock(pname, alt_name, alt_qty)
                         _raise_alt_stock_popup(pid, pname, alt_name, alt_qty)
                     else:
                         conn.execute(
@@ -732,16 +732,18 @@ def _announce_similar(scanned, matched):
         pass
 
 
-def _announce_alt_stock(scanned, alt):
-    """Fire a fire-and-forget event announcing that the LAST unit of a product
-    was just consumed but a similar product is still in stock, so the user can
-    use that one instead of buying more (e.g. "this was the last X but we have Y
-    in stock"). Decoupled TTS via the vh_inventory_announce automation
-    (kind == alt_in_stock). Wrapped in try/except so a notification problem can
-    never affect scanning or the inventory reconcile."""
+def _announce_alt_stock(scanned, alt, alt_qty=None):
+    """Fire a fire-and-forget event announcing that a product dropped below its
+    auto-add threshold but a similar product is still in stock, so the user can
+    use that one instead of buying more (e.g. "stock of X is low but we have Y
+    in stock"). `alt_qty` is the alternative's in-stock quantity, exposed to the
+    TTS template as {alt_stock_qty}. Decoupled TTS via the vh_inventory_announce
+    automation (kind == alt_in_stock). Wrapped in try/except so a notification
+    problem can never affect scanning or the inventory reconcile."""
     try:
         event.fire("vh_inventory_announce", kind="alt_in_stock",
-                   scanned=scanned or "", alt=alt or "")
+                   scanned=scanned or "", alt=alt or "",
+                   alt_qty="" if alt_qty is None else alt_qty)
     except Exception:
         pass
 
