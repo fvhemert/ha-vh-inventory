@@ -1150,8 +1150,34 @@ _ai_match_hint = {"type": "markdown",
              "Decision method, confidence and time are logged to History.*",
   "card_mod": HINT_CM}
 
+# Health & daily usage. The conversation agent has a request quota (Gemini free
+# tier resets requests-per-day at midnight Pacific). "Matching degraded" turns on
+# when a call fails and matching falls back to the word-based scorer. The counters
+# reset daily; set "Daily request limit" to your model's requests-per-day to see
+# usage and get an 80%/100% warning. "Notify when degraded" sends a mobile push.
+_ai_match_health_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_boolean.vh_ai_match_degraded",
+   "name": "Matching degraded", "icon": "mdi:robot-off"},
+  {"entity": "counter.vh_ai_match_calls_today",
+   "name": "AI matches today", "icon": "mdi:robot"},
+  {"entity": "counter.vh_ai_match_fails_today",
+   "name": "Failures today", "icon": "mdi:alert-circle"},
+  {"entity": "input_number.vh_ai_match_daily_limit",
+   "name": "Daily request limit", "icon": "mdi:counter"},
+  {"entity": "input_boolean.vh_notify_ai_degraded",
+   "name": "Notify when degraded", "icon": "mdi:cellphone-message"},
+  {"entity": "input_text.vh_notify_msg_ai_degraded",
+   "name": "Degraded message", "icon": "mdi:robot-off"}]}
+
+_ai_match_health_hint = {"type": "markdown",
+  "content": "*Counters reset daily at midnight Pacific (Gemini's quota reset). "
+             "Set the daily limit to your model's requests-per-day for a usage "
+             "warning; leave 0 if unknown.*",
+  "card_mod": HINT_CM}
+
 ai_match_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
-  _scn_section("Smart (AI) matching"), _ai_match_setting_rows, _ai_match_hint]}
+  _scn_section("Smart (AI) matching"), _ai_match_setting_rows, _ai_match_hint,
+  _ai_match_health_rows, _ai_match_health_hint]}
 
 # --- Similarity checking (Setup tab) ----------------------------------------
 # Controls the Add-mode "similar product found" popup raised by pyscript when a

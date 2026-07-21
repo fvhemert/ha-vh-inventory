@@ -3,6 +3,7 @@ import datetime
 import json
 import time
 from difflib import SequenceMatcher
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -51,6 +52,15 @@ AI_MATCH_POLICY = (
     "(e.g. Campina, AH, houdbare, vers, 1L). DIFFERENT = flavour, variety or type "
     "differs (Lime/Vanilla/Zero, cola/fanta, magere/volle)."
 )
+# The conversation agent has a request quota (Gemini free tier: requests-per-minute
+# and requests-per-day, RPD reset at midnight Pacific). We count our own calls in
+# counter.vh_ai_match_calls_today / _fails_today (reset daily at midnight
+# AI_DAILY_RESET_TZ so the counter stays in sync with the real quota) and, on a
+# call error/timeout/quota (HTTP 429), set input_boolean.vh_ai_match_degraded and
+# fire a throttled vh_inventory_announce (kind == ai_match_degraded) so the user is
+# actively told matching fell back to the string scorer. See _ai_same_product(),
+# _ai_call_ok(), _announce_ai_degraded() and vh_ai_reset_daily_counters().
+AI_DAILY_RESET_TZ = "America/Los_Angeles"
 
 # When the LAST unit of a product is consumed (a Use scan brings its stock to 0),
 # its name is compared against the products still IN STOCK. A best match at or
@@ -1459,6 +1469,105 @@ def _ai_match_policy():
     return _helper_text("input_text.vh_ai_match_policy", AI_MATCH_POLICY)
 
 
+def _ai_counter_inc(entity_id):
+    """Best-effort increment of a daily AI-usage counter helper; never raises."""
+    try:
+        counter.increment(entity_id=entity_id)
+    except Exception:
+        pass
+
+
+def _ai_daily_limit():
+    """Configured requests-per-day limit for the conversation agent
+    (input_number.vh_ai_match_daily_limit). 0/unset => unknown (no usage % or
+    approaching-limit warning is shown)."""
+    try:
+        v = int(float(state.get("input_number.vh_ai_match_daily_limit")))
+        return v if v > 0 else 0
+    except Exception:
+        return 0
+
+
+def _ai_calls_today():
+    """Current value of counter.vh_ai_match_calls_today (0 on any error)."""
+    try:
+        return int(float(state.get("counter.vh_ai_match_calls_today")))
+    except Exception:
+        return 0
+
+
+def _set_ai_degraded(on):
+    """Set input_boolean.vh_ai_match_degraded on/off (only when it actually
+    changes). ON means the last AI match call failed and the string scorer is
+    being used; OFF means AI matching is healthy again. Never raises."""
+    try:
+        want = "on" if on else "off"
+        if str(state.get("input_boolean.vh_ai_match_degraded")).lower() != want:
+            service.call("input_boolean", "turn_on" if on else "turn_off",
+                         entity_id="input_boolean.vh_ai_match_degraded")
+    except Exception:
+        pass
+
+
+def _announce_ai_degraded(reason):
+    """Fire a THROTTLED (at most once per hour) decoupled event telling the user
+    that AI matching is degraded (reason 'error'), at its daily limit ('limit') or
+    approaching it ('approaching'). A separate HA automation
+    (vh_inventory_notify_ai_degraded) does the mobile push, so this never affects
+    scanning. The once/hour cap prevents a push storm during a sustained outage.
+    Never raises."""
+    try:
+        now_ts = time.time()
+        try:
+            last = float(state.get("pyscript.vh_ai_degraded_notified"))
+        except Exception:
+            last = 0.0
+        if now_ts - last < 3600:
+            return
+        state.set("pyscript.vh_ai_degraded_notified", now_ts)
+        event.fire("vh_inventory_announce", kind="ai_match_degraded",
+                   reason=reason or "", calls=_ai_calls_today(),
+                   limit=_ai_daily_limit())
+    except Exception:
+        pass
+
+
+def _ai_call_ok():
+    """Called after a successful conversation-agent call: clear the degraded flag
+    and, when a daily limit is configured, warn once (throttled) as usage reaches
+    80% and 100% of it. Never raises."""
+    try:
+        _set_ai_degraded(False)
+        limit = _ai_daily_limit()
+        if limit > 0:
+            calls = _ai_calls_today()
+            if calls >= limit:
+                _announce_ai_degraded("limit")
+            elif calls >= int(limit * 0.8):
+                _announce_ai_degraded("approaching")
+    except Exception:
+        pass
+
+
+@time_trigger("cron(1 * * * *)")
+def vh_ai_reset_daily_counters():
+    """Reset the daily AI-usage counters at midnight in AI_DAILY_RESET_TZ (the
+    conversation agent's RPD quota reset, Pacific for Gemini). Runs hourly and acts
+    only when it is 00:xx there, so it stays DST-correct without a fixed UTC offset
+    (HA cron uses local time, which drifts against Pacific twice a year)."""
+    try:
+        if datetime.datetime.now(ZoneInfo(AI_DAILY_RESET_TZ)).hour != 0:
+            return
+    except Exception:
+        return
+    for ent in ("counter.vh_ai_match_calls_today",
+                "counter.vh_ai_match_fails_today"):
+        try:
+            counter.reset(entity_id=ent)
+        except Exception:
+            pass
+
+
 def _match_meta_str(method, confidence, elapsed_ms):
     """Compact, human-readable description of how a match decision was reached, for
     the History detail column, e.g. 'AI, conf 95%, 1420 ms' or 'string, 73%'."""
@@ -1522,11 +1631,13 @@ def _ai_same_product(scanned, candidates):
           "decision."
     )
     t0 = time.monotonic()
+    _ai_counter_inc("counter.vh_ai_match_calls_today")
     try:
         resp = service.call("conversation", "process", blocking=True,
                             return_response=True, text=prompt,
                             agent_id=_ai_match_agent())
         elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _ai_call_ok()
         data = _parse_ai_json(_extract_speech(resp))
         match = (data.get("match") or "").strip()
         try:
@@ -1543,6 +1654,9 @@ def _ai_same_product(scanned, candidates):
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         log.warning("VH-Inventory AI match failed (%s); string fallback" % exc)
+        _ai_counter_inc("counter.vh_ai_match_fails_today")
+        _set_ai_degraded(True)
+        _announce_ai_degraded("error")
         return (None, 0, elapsed_ms, False)
 
 

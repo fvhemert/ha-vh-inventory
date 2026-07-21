@@ -73,6 +73,10 @@ input_text:
     name: VH AI Match Policy
     max: 255
     icon: mdi:brain
+  vh_notify_msg_ai_degraded:
+    name: VH Notify Message AI Degraded
+    max: 255
+    icon: mdi:robot-off
   vh_tts_msg_similar:
     name: VH TTS Message Similar
     max: 255
@@ -418,6 +422,12 @@ input_boolean:
   vh_ai_match_enabled:
     name: VH AI Match Enabled
     icon: mdi:robot-happy
+  vh_ai_match_degraded:
+    name: VH AI Match Degraded
+    icon: mdi:robot-off
+  vh_notify_ai_degraded:
+    name: VH Notify AI Degraded
+    icon: mdi:robot-off
   vh_alt_stock_enabled:
     name: VH Alt Stock Enabled
     icon: mdi:swap-horizontal-bold
@@ -527,6 +537,26 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:swap-horizontal-bold
+  vh_ai_match_daily_limit:
+    name: VH AI Match Daily Limit
+    min: 0
+    max: 100000
+    step: 1
+    mode: box
+    unit_of_measurement: req/day
+    icon: mdi:counter
+
+counter:
+  vh_ai_match_calls_today:
+    name: VH AI Match Calls Today
+    icon: mdi:robot
+    restore: true
+    step: 1
+  vh_ai_match_fails_today:
+    name: VH AI Match Fails Today
+    icon: mdi:robot-off
+    restore: true
+    step: 1
 
 script:
   vh_save_product:
@@ -1215,6 +1245,62 @@ automation:
                 title: Boodschappenlijst
                 message: "{{ message | trim }}"
 
+  - id: vh_inventory_notify_ai_degraded
+    alias: VH Inventory - AI Matching Health Notification
+    description: >-
+      Decoupled mobile push telling the user that semantic (AI) product matching
+      is unavailable and the basic string matcher is being used, or that the
+      conversation agent's daily request limit is reached/approaching. Listens for
+      the vh_inventory_announce event (kind == ai_match_degraded) fired by the
+      pyscript backend when a Gemini call fails (e.g. HTTP 429 quota) or when usage
+      crosses the configured daily limit. The backend throttles these events to at
+      most once per hour. Runs in parallel and fully independently of the inventory
+      logic. Message text is configurable via input_text.vh_notify_msg_ai_degraded.
+    mode: parallel
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: vh_inventory_announce
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.kind == 'ai_match_degraded' }}"
+      - condition: state
+        entity_id: input_boolean.vh_notify_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.vh_notify_ai_degraded
+        state: "on"
+      - condition: template
+        value_template: "{{ (states('input_text.vh_notify_devices') | trim) != '' }}"
+    variables:
+      devices: >-
+        {{ states('input_text.vh_notify_devices').split(',')
+           | map('trim') | reject('eq', '')
+           | reject('in', ['unknown', 'unavailable']) | list }}
+      reason: "{{ trigger.event.data.reason | default('') }}"
+      calls: "{{ trigger.event.data.calls | default(0) }}"
+      limit: "{{ trigger.event.data.limit | default(0) }}"
+      message: >-
+        {% if reason == 'limit' %}
+        {% set t = 'AI-matchlimiet bereikt ({calls}/{limit} vandaag); basismatching wordt gebruikt.' %}
+        {% elif reason == 'approaching' %}
+        {% set t = 'AI-matchgebruik nadert de daglimiet ({calls}/{limit}).' %}
+        {% else %}
+        {% set t = states('input_text.vh_notify_msg_ai_degraded') %}
+        {% if t in ['', 'unknown', 'unavailable'] %}
+        {% set t = 'AI-productmatching is niet beschikbaar (limiet of fout); basismatching wordt gebruikt.' %}
+        {% endif %}
+        {% endif %}
+        {{ t | replace('{calls}', calls|string) | replace('{limit}', limit|string) }}
+    actions:
+      - repeat:
+          for_each: "{{ devices }}"
+          sequence:
+            - service: "notify.{{ repeat.item }}"
+              data:
+                title: VH-Inventory
+                message: "{{ message | trim }}"
+
   - id: vh_inventory_mqtt_topic_changed
     alias: VH Inventory - Reload On MQTT Topic Change
     description: >-
@@ -1390,3 +1476,18 @@ automation:
             {{ 'barcode/scanned'
                if states('input_text.vh_mqtt_topic') in ['unknown', 'unavailable', '']
                else states('input_text.vh_mqtt_topic') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_notify_msg_ai_degraded
+        data:
+          value: >-
+            {{ 'AI-productmatching is niet beschikbaar (limiet of fout); basismatching wordt gebruikt.'
+               if states('input_text.vh_notify_msg_ai_degraded') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_notify_msg_ai_degraded') }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vh_ai_match_daily_limit
+        data:
+          value: >-
+            {{ 0 if states('input_number.vh_ai_match_daily_limit') in ['unknown', 'unavailable']
+               else states('input_number.vh_ai_match_daily_limit') }}

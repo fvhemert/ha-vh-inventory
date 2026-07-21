@@ -448,6 +448,27 @@ Every AI (and fallback) decision is written to **History** with the method used,
 > names are sent to the conversation agent's provider (e.g. Google) for the judgement, and each
 > scan makes one request. Turn it off to keep matching fully local.
 
+#### Health & daily usage
+
+Conversation agents have a **request quota**. Gemini's free tier, for example, limits
+requests-per-minute and requests-per-day (RPD), and the daily allowance resets at **midnight
+Pacific**. When the agent refuses a call (an error, a timeout or an HTTP 429 "quota exceeded"),
+matching silently falls back to the word-based scorer — which means the false matches you enabled
+AI matching to avoid can briefly return. This section makes that visible and can alert you:
+
+- **Matching degraded** — turns **on** when a call fails and the word-based scorer is being used,
+  and clears automatically on the next successful AI call. Watch this on the Setup tab as an
+  always-visible health indicator.
+- **AI matches today** / **Failures today** — counters of how many matching requests were made and
+  how many failed. They **reset daily at midnight Pacific** to stay in sync with the real quota.
+- **Daily request limit** — set this to your model's requests-per-day to see how close you are and
+  get a one-off warning at 80 % and at 100 % of it. Leave it at **0** if you don't know the limit
+  (no usage warning is then shown).
+- **Notify when degraded** — when on, sends a **mobile push** (to the devices selected under
+  *Notifications*) the first time matching becomes degraded or reaches the daily limit. These
+  pushes are throttled to at most once per hour and also require the master *Notifications* toggle
+  to be on. The message text is editable in **Degraded message**.
+
 ### Similarity checking
 
 When a product is scanned in **Add** mode, its resolved name is compared against the products
