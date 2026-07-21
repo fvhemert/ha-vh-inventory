@@ -116,3 +116,15 @@ dashboard. See the Installation Guide, section 10.
 ## License
 
 Released under the [MIT License](LICENSE).
+
+## Thank you
+
+This project stands on the shoulders of two open-source solutions that inspired me to build
+VH-Inventory:
+
+- **[Blaine Venturine](https://github.com/blaineventurine)** — for
+  [Simple Inventory](https://github.com/blaineventurine/simple_inventory).
+- **[Matt Fryer](https://github.com/MattFryer)** — for
+  [HA-Mealie-Barcode-Scanner](https://github.com/MattFryer/HA-Mealie-Barcode-Scanner).
+
+Thank you both for sharing your work with the community.
