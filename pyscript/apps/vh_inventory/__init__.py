@@ -1,6 +1,7 @@
 import sqlite3
 import datetime
 import json
+import time
 from difflib import SequenceMatcher
 
 import requests
@@ -31,6 +32,25 @@ SIMILARITY_POPUP_DEVICE = "barcode-01"
 # switch.<dev>_popup[/_yes/_no]). The small printer scanner (scanner-01) has NO
 # popup and is intentionally excluded.
 POPUP_DEVICES = ("barcode-01", "barcode-02")
+
+# ---- Semantic (LLM) product matching -----------------------------------------
+# When enabled (input_boolean.vh_ai_match_enabled), the Add-mode similarity check
+# and the alt-stock check ask a Home Assistant conversation agent (Google
+# Generative AI / Gemini by default) whether two product names are the SAME
+# product, INSTEAD of the character/word scorer. The LLM understands meaning, so
+# 'Coca Cola Lime' != 'Coca Cola Zero' (different flavour) while 'Campina magere
+# melk' == 'Houdbare magere melk' (same product, other brand/shelf-life). The
+# string scorer (_name_similarity) stays as an offline/error/quota FALLBACK so the
+# feature never fully breaks. The agent id and the tunable matching policy are read
+# from HA helpers (input_text.vh_ai_match_agent, input_text.vh_ai_match_policy) so
+# they are configurable from the Setup tab. The agent returns a confidence (0-100)
+# and the call is timed; both are written to History. See _ai_same_product().
+AI_MATCH_AGENT = "conversation.google_generative_ai"
+AI_MATCH_POLICY = (
+    "SAME product = differs only in brand, shop, shelf-life, origin or packaging "
+    "(e.g. Campina, AH, houdbare, vers, 1L). DIFFERENT = flavour, variety or type "
+    "differs (Lime/Vanilla/Zero, cola/fanta, magere/volle)."
+)
 
 # When the LAST unit of a product is consumed (a Use scan brings its stock to 0),
 # its name is compared against the products still IN STOCK. A best match at or
@@ -370,30 +390,54 @@ def _alt_stock_threshold():
 
 
 def _find_instock_alternative(conn, pid, pname):
-    """Return (name, total_qty) of an IN-STOCK product (total quantity > 0,
-    different product_id) whose name is similar to `pname` at or above the
-    configured alt-stock threshold, or None. Used when the last unit of a
-    product is consumed to offer an equivalent already on the shelf. Uses the
+    """Return (name, total_qty, meta) of an IN-STOCK product (total quantity > 0,
+    different product_id) judged to be the SAME product as `pname`, or None. Used
+    when the last unit of a product is consumed to offer an equivalent already on
+    the shelf. When AI matching is enabled the decision is made by the conversation
+    agent (semantic), otherwise (or on agent error) by the string scorer at or above
+    the configured alt-stock threshold. `meta` is a dict {method, confidence,
+    elapsed_ms} describing how the decision was reached, for History. Uses the
     caller's open connection (read-only query)."""
     if not (pname or "").strip():
         return None
-    threshold = _alt_stock_threshold()
     rows = conn.execute(
         "SELECT p.name, COALESCE(SUM(s.quantity), 0) AS q FROM products p "
         "JOIN stock s ON s.product_id = p.id "
         "WHERE p.id != ? "
         "GROUP BY p.id HAVING COALESCE(SUM(s.quantity), 0) > 0", [pid]).fetchall()
-    best_name, best_qty, best_score = None, 0, 0.0
+    names = []
+    qty_by_name = {}
     for r in rows:
         oname = (r[0] or "").strip()
         if not oname:
             continue
-        score = _name_similarity(pname, oname)
-        if score > best_score:
-            best_name, best_qty, best_score = oname, int(r[1] or 0), score
-    if best_name is not None and best_score >= threshold:
-        return (best_name, best_qty)
-    return None
+        names.append(oname)
+        qty_by_name[oname.lower()] = int(r[1] or 0)
+    if not names:
+        return None
+    best_name, method, confidence, elapsed_ms = None, None, None, None
+    if _ai_match_enabled():
+        m, conf, ms, ok = _ai_same_product(pname, names)
+        elapsed_ms, confidence = ms, conf
+        if ok:
+            best_name, method = m, "AI"
+        else:
+            method = "AI-fallback"
+    if best_name is None and (method is None or method == "AI-fallback"):
+        threshold = _alt_stock_threshold()
+        bn, bs = None, 0.0
+        for oname in names:
+            score = _name_similarity(pname, oname)
+            if score > bs:
+                bn, bs = oname, score
+        if bn is not None and bs >= threshold:
+            best_name, confidence = bn, bs
+        if method is None:
+            method = "string"
+    if best_name is None:
+        return None
+    meta = {"method": method, "confidence": confidence, "elapsed_ms": elapsed_ms}
+    return (best_name, qty_by_name.get(best_name.lower(), 0), meta)
 
 
 def _resolve_popup_device(device):
@@ -485,11 +529,15 @@ def _reconcile_shopping(before, after):
                         # do NOT auto-add. Raise the interactive popup asking the
                         # user whether to add it anyway, and announce (TTS) the
                         # in-stock alternative.
-                        alt_name, alt_qty = alt
+                        alt_name, alt_qty, alt_meta = alt
                         _hist_row(conn, "alt-in-stock", "shopping_list", pid,
                                   "Use-scan last unit of '%s'; '%s' (stock %d) in "
                                   "stock -> popup asking whether to add to "
-                                  "shopping list" % (pname, alt_name, alt_qty))
+                                  "shopping list [%s]"
+                                  % (pname, alt_name, alt_qty,
+                                     _match_meta_str(alt_meta.get("method"),
+                                                     alt_meta.get("confidence"),
+                                                     alt_meta.get("elapsed_ms"))))
                         changed = True
                         _announce_alt_stock(pname, alt_name)
                         _raise_alt_stock_popup(pid, pname, alt_name, alt_qty)
@@ -1389,6 +1437,115 @@ def _name_similarity(a, b):
     return max(_ratio(a, b), _token_set_ratio(a, b))
 
 
+def _ai_match_enabled():
+    """True when semantic (LLM) matching is toggled on
+    (input_boolean.vh_ai_match_enabled). Off/unknown => use the string scorer."""
+    try:
+        return str(state.get("input_boolean.vh_ai_match_enabled")).lower() == "on"
+    except Exception:
+        return False
+
+
+def _ai_match_agent():
+    """Conversation agent id used for semantic matching (Setup tab helper, falling
+    back to AI_MATCH_AGENT)."""
+    return _helper_text("input_text.vh_ai_match_agent", AI_MATCH_AGENT)
+
+
+def _ai_match_policy():
+    """Tunable matching-policy text (Setup tab helper, falling back to
+    AI_MATCH_POLICY) telling the LLM which differences make products the same vs
+    different."""
+    return _helper_text("input_text.vh_ai_match_policy", AI_MATCH_POLICY)
+
+
+def _match_meta_str(method, confidence, elapsed_ms):
+    """Compact, human-readable description of how a match decision was reached, for
+    the History detail column, e.g. 'AI, conf 95%, 1420 ms' or 'string, 73%'."""
+    parts = [method or "?"]
+    if confidence is not None:
+        parts.append("conf %.0f%%" % float(confidence))
+    if elapsed_ms is not None:
+        parts.append("%d ms" % int(elapsed_ms))
+    return ", ".join(parts)
+
+
+def _parse_ai_json(txt):
+    """Best-effort parse of a JSON object from an LLM reply that may be wrapped in
+    markdown fences or surrounding prose. Returns a dict (possibly empty)."""
+    s = (txt or "").strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        if s[:4].lower() == "json":
+            s = s[4:]
+    a = s.find("{")
+    b = s.rfind("}")
+    if a != -1 and b != -1 and b > a:
+        s = s[a:b + 1]
+    try:
+        return json.loads(s)
+    except Exception:
+        return {}
+
+
+def _extract_speech(resp):
+    """Pull the plain-text speech out of a conversation.process response, tolerating
+    whether pyscript hands back the full result or just the response body."""
+    d = resp
+    if isinstance(d, dict) and "response" in d:
+        d = d["response"]
+    return d["speech"]["plain"]["speech"]
+
+
+def _ai_same_product(scanned, candidates):
+    """Ask the configured HA conversation agent (Gemini) which candidate name, if
+    any, is the SAME product as `scanned`. Returns a 4-tuple
+    (matched_candidate_or_None, confidence_0_100, elapsed_ms, ok).
+
+    `ok` is False only when the agent errored/timed out/could not be parsed, which
+    signals the caller to fall back to the string scorer. When `ok` is True the
+    decision is authoritative: a returned None means 'no same product' (do NOT fall
+    back). `candidates` is a list of product-name strings; the returned match (when
+    not None) is the ORIGINAL candidate string. No call is made for an empty list."""
+    cands = [c for c in (candidates or []) if (c or "").strip()]
+    if not cands:
+        return (None, 0, 0, True)
+    numbered = "\n".join(["%d) %s" % (i + 1, c) for i, c in enumerate(cands)])
+    prompt = (
+        "You deduplicate a grocery shopping/stock list. Decide whether a scanned "
+        "product is the SAME product as one already on the list.\n"
+        + _ai_match_policy()
+        + "\n\nScanned product: \"" + (scanned or "") + "\"\nList:\n" + numbered
+        + "\n\nReply with ONLY a compact JSON object and nothing else: "
+          "{\"match\": \"<the exact list text that is the same product, or NONE>\", "
+          "\"confidence\": <integer 0-100>}. Confidence is how sure you are of the "
+          "decision."
+    )
+    t0 = time.monotonic()
+    try:
+        resp = service.call("conversation", "process", blocking=True,
+                            return_response=True, text=prompt,
+                            agent_id=_ai_match_agent())
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        data = _parse_ai_json(_extract_speech(resp))
+        match = (data.get("match") or "").strip()
+        try:
+            conf = int(float(data.get("confidence", 0)))
+        except Exception:
+            conf = 0
+        conf = max(0, min(100, conf))
+        if not match or match.upper() == "NONE":
+            return (None, conf, elapsed_ms, True)
+        for c in cands:
+            if c.strip().lower() == match.lower():
+                return (c, conf, elapsed_ms, True)
+        return (None, conf, elapsed_ms, True)
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        log.warning("VH-Inventory AI match failed (%s); string fallback" % exc)
+        return (None, 0, elapsed_ms, False)
+
+
 def _similarity_threshold():
     """Configured similarity threshold (0-100) from input_number, falling back to
     SIMILARITY_THRESHOLD when unset/unknown/out-of-range."""
@@ -1427,15 +1584,33 @@ def _check_shopping_similarity(scanned_name, device=None):
     scanned = (scanned_name or "").strip()
     if not scanned:
         return
-    threshold = _similarity_threshold()
-    best_name, best_score = None, 0.0
+    candidates = []
     for cand in _shopping_product_names():
         if cand.strip().lower() == scanned.lower():
             continue
-        score = _name_similarity(scanned, cand)
-        if score > best_score:
-            best_name, best_score = cand, score
-    if best_name is None or best_score < threshold:
+        candidates.append(cand)
+    if not candidates:
+        return
+    best_name, method, confidence, elapsed_ms = None, None, None, None
+    if _ai_match_enabled():
+        m, conf, ms, ok = _ai_same_product(scanned, candidates)
+        elapsed_ms, confidence = ms, conf
+        if ok:
+            best_name, method = m, "AI"
+        else:
+            method = "AI-fallback"
+    if best_name is None and (method is None or method == "AI-fallback"):
+        threshold = _similarity_threshold()
+        bn, bs = None, 0.0
+        for cand in candidates:
+            score = _name_similarity(scanned, cand)
+            if score > bs:
+                bn, bs = cand, score
+        if bn is not None and bs >= threshold:
+            best_name, confidence = bn, bs
+        if method is None:
+            method = "string"
+    if best_name is None:
         return
     header = _helper_text("input_text.vh_similarity_popup_header",
                           SIMILARITY_POPUP_HEADER)
@@ -1459,8 +1634,9 @@ def _check_shopping_similarity(scanned_name, device=None):
     switch.turn_on(entity_id="switch.%s_popup" % dev)
     _announce_similar(scanned, best_name)
     _log_history("similar", "shopping_list", None,
-                 "Add-scan '%s' ~ shopping '%s' (%.0f%%) -> popup"
-                 % (scanned, best_name, best_score))
+                 "Add-scan '%s' ~ shopping '%s' -> popup [%s]"
+                 % (scanned, best_name,
+                    _match_meta_str(method, confidence, elapsed_ms)))
 
 
 # ---------- ONLINE BARCODE RESOLUTION ----------

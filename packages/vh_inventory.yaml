@@ -65,6 +65,14 @@ input_text:
     name: VH Similarity Message
     max: 255
     icon: mdi:message-text
+  vh_ai_match_agent:
+    name: VH AI Match Agent
+    max: 255
+    icon: mdi:robot
+  vh_ai_match_policy:
+    name: VH AI Match Policy
+    max: 255
+    icon: mdi:brain
   vh_tts_msg_similar:
     name: VH TTS Message Similar
     max: 255
@@ -407,6 +415,9 @@ input_boolean:
   vh_tts_announce_similar:
     name: VH TTS Announce Similar
     icon: mdi:approximately-equal
+  vh_ai_match_enabled:
+    name: VH AI Match Enabled
+    icon: mdi:robot-happy
   vh_alt_stock_enabled:
     name: VH Alt Stock Enabled
     icon: mdi:swap-horizontal-bold
@@ -1331,6 +1342,22 @@ automation:
             {{ 'Is {scanned_product} similar to {matched_product}'
                if states('input_text.vh_similarity_msg') in ['unknown', 'unavailable', '']
                else states('input_text.vh_similarity_msg') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_ai_match_agent
+        data:
+          value: >-
+            {{ 'conversation.google_generative_ai'
+               if states('input_text.vh_ai_match_agent') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_ai_match_agent') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_ai_match_policy
+        data:
+          value: >-
+            {{ 'SAME product = differs only in brand, shop, shelf-life, origin or packaging (e.g. Campina, AH, houdbare, vers, 1L). DIFFERENT = flavour, variety or type differs (Lime/Vanilla/Zero, cola/fanta, magere/volle).'
+               if states('input_text.vh_ai_match_policy') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_ai_match_policy') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_alt_stock_popup_header

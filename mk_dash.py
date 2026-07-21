@@ -1129,6 +1129,30 @@ notify_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
 handheld_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
   _scn_section("Handheld scanner"), _handheld_setting_rows]}
 
+# --- Smart (AI) matching (Setup tab) ----------------------------------------
+# Master toggle + config for LLM-based semantic product matching. When ON, the
+# Similarity checking and Alternative-in-stock checks ask a Home Assistant
+# conversation agent (Gemini by default) whether two product names are the SAME
+# product, instead of the word/character scorer (which stays as an offline/error
+# fallback). The agent id and the tunable matching policy live here. This only
+# changes HOW a match is decided; the checks still run at the same moments.
+_ai_match_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities": [
+  {"entity": "input_boolean.vh_ai_match_enabled",
+   "name": "Use AI matching", "icon": "mdi:robot-happy"},
+  {"entity": "input_text.vh_ai_match_agent",
+   "name": "Conversation agent", "icon": "mdi:robot"},
+  {"entity": "input_text.vh_ai_match_policy",
+   "name": "Matching policy", "icon": "mdi:brain"}]}
+
+_ai_match_hint = {"type": "markdown",
+  "content": "*Uses a Home Assistant conversation agent (e.g. Gemini) to judge "
+             "whether two products are the same. Off = word-based matching. "
+             "Decision method, confidence and time are logged to History.*",
+  "card_mod": HINT_CM}
+
+ai_match_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
+  _scn_section("Smart (AI) matching"), _ai_match_setting_rows, _ai_match_hint]}
+
 # --- Similarity checking (Setup tab) ----------------------------------------
 # Controls the Add-mode "similar product found" popup raised by pyscript when a
 # scanned product resembles one already on the shopping list. The threshold and
@@ -1184,7 +1208,7 @@ alt_stock_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
 setup_tab = {"attributes": {"label": "Setup", "icon": "mdi:cog", "stacked": True},
   "card": {"type": "vertical-stack",
     "cards": [app_settings_card, tts_card, notify_card, handheld_card,
-              similarity_card, alt_stock_card, scanner_card]}}
+              ai_match_card, similarity_card, alt_stock_card, scanner_card]}}
 
 
 CART_RED = (

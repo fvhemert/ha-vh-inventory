@@ -420,6 +420,34 @@ Handheld scan outcomes are announced through the shared, scanner-agnostic *Spoke
 announcements (TTS)* and *Mobile notifications* sections above — there are no longer any
 handheld-specific notification messages.
 
+### Smart (AI) matching
+
+Both the *Similarity checking* and *Alternative in stock* checks below decide whether two
+product names refer to the **same product**. By default this is a word/character comparison,
+which can't tell that *Coca Cola Lime* and *Coca Cola Zero* are different products (different
+flavour) while *Campina magere melk* and *Houdbare magere melk* are the same product (only the
+brand and shelf-life differ). Turning on **Smart (AI) matching** hands that judgement to a Home
+Assistant **conversation agent** (Google Generative AI / Gemini by default), which understands
+what the words *mean*.
+
+- **Use AI matching** — master on/off. When **on**, the two checks ask the AI whether a scanned
+  product is the same as one already listed. When **off** — or if the agent errors, times out or
+  is offline — the built-in word-based scorer is used as a fallback, so the feature never fully
+  breaks. This only changes *how* a match is decided; the checks still run at the same moments
+  (Add scan for similarity, last-unit Use scan for alternative-in-stock).
+- **Conversation agent** — the agent entity to ask. Default `conversation.google_generative_ai`.
+- **Matching policy** — plain-language rules telling the AI which differences make two products
+  the **same** (brand, shop, shelf-life, packaging) versus **different** (flavour, variety, type).
+  Edit this to tune the behaviour without touching code.
+
+Every AI (and fallback) decision is written to **History** with the method used, the AI's
+**confidence** (0–100 %) and the **time** the answer took, e.g.
+`… -> popup [AI, conf 95%, 1420 ms]`.
+
+> **Note:** with AI matching on, the scanned product name and the current shopping/stock list
+> names are sent to the conversation agent's provider (e.g. Google) for the judgement, and each
+> scan makes one request. Turn it off to keep matching fully local.
+
 ### Similarity checking
 
 When a product is scanned in **Add** mode, its resolved name is compared against the products
