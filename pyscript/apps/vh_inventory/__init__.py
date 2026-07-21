@@ -529,22 +529,22 @@ def _reconcile_shopping(before, after):
                 enabled, threshold, add_qty = info
                 if enabled and threshold and a < threshold and pid not in on_list:
                     alt, pname = None, ""
-                    if a == 0 and _alt_stock_enabled():
+                    if _alt_stock_enabled():
                         prow = conn.execute(
                             "SELECT name FROM products WHERE id=?", [pid]).fetchone()
                         pname = (prow[0] if prow else "") or ""
                         alt = _find_instock_alternative(conn, pid, pname)
                     if alt:
-                        # Last unit consumed but a similar product is in stock:
-                        # do NOT auto-add. Raise the interactive popup asking the
-                        # user whether to add it anyway, and announce (TTS) the
-                        # in-stock alternative.
+                        # Stock dropped below the auto-add threshold but a similar
+                        # product is in stock: do NOT auto-add. Raise the
+                        # interactive popup asking the user whether to add it
+                        # anyway, and announce (TTS) the in-stock alternative.
                         alt_name, alt_qty, alt_meta = alt
                         _hist_row(conn, "alt-in-stock", "shopping_list", pid,
-                                  "Use-scan last unit of '%s'; '%s' (stock %d) in "
-                                  "stock -> popup asking whether to add to "
-                                  "shopping list [%s]"
-                                  % (pname, alt_name, alt_qty,
+                                  "Use-scan '%s' below auto-add threshold (%d); "
+                                  "'%s' (stock %d) in stock -> popup asking "
+                                  "whether to add to shopping list [%s]"
+                                  % (pname, threshold, alt_name, alt_qty,
                                      _match_meta_str(alt_meta.get("method"),
                                                      alt_meta.get("confidence"),
                                                      alt_meta.get("elapsed_ms"))))
