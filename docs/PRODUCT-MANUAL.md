@@ -210,6 +210,9 @@ The **Shopping list** tab holds what you need to buy.
 - Add items with the **Add item** button, which opens the **Quick Shopping** tab (tap products
   to add them to the list). **Auto-Add** can also populate the list automatically when stock
   runs low.
+- Use **Add Ad-Hoc product** when you only know a general product name. Enter a name and
+  quantity; the item is added directly to the shopping list and is deliberately **not**
+  stored in the Products database. Ad-Hoc rows carry a compact **Ad-Hoc** badge.
 - Adjust quantities with the **+ / –** buttons. Pressing **–** on an item at quantity 1
   removes it from the list (there are no separate edit/delete controls on this tab).
 - When the shopping list contains items, the cart icon is highlighted (styling cue).
@@ -220,7 +223,8 @@ Press **Print** to send the list to the connected **Epson TM-T20II** (ESC/POS) t
 printer. The receipt is organised **per store**: each store from the Stores tab prints as a
 header followed by its items, and a final **Algemeen** section lists everything with no store
 assigned (or set to *All*). Add or rename stores on the Stores tab and the next printout
-reflects the change automatically.
+reflects the change automatically. Ad-Hoc products have no store assignment and therefore
+print under **Algemeen**.
 
 ---
 
@@ -496,6 +500,14 @@ shopping-list product and **removes that matched product from the shopping list*
 **No** simply dismisses the pop-up. Both buttons also close the pop-up and reset
 themselves. (Works on both large-screen scanners, `barcode-01` and `barcode-02`; the popup
 appears on whichever one did the scan.)
+
+Ad-Hoc products are checked first. An exact normalized name match is deterministic; other
+Ad-Hoc names use the same configured AI/string similarity engine and threshold. The
+Ad-Hoc-specific header and message are independently configurable. Its message supports
+`{scanned_product}`, `{adhoc_product}`, `{adhoc_quantity}`, and `{cr}`. The prompt clearly
+states that **Yes removes the complete Ad-Hoc row**, including a quantity greater than one.
+Popup context is stored separately per large-screen scanner, so simultaneous prompts cannot
+remove each other's shopping-list row.
 
 - **Speak announcement** — optional on/off toggle. When on, a spoken TTS prompt is played
   **together with** the pop-up (but fully decoupled, so it never delays scanning) through the

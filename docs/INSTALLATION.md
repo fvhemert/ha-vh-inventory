@@ -414,3 +414,22 @@ Keep a versioned backup containing: the pyscript app, the package YAML, the SQLi
 the dashboard builder, and the `translations/` folder. To restore on a new server, repeat
 sections 3–7 using the backed-up files. The schema is self-creating, so restoring
 `vh_inventory.db` is optional (only needed to restore data).
+
+Before upgrading an existing installation:
+
+1. Create a full **Settings → System → Backups** backup in Home Assistant.
+2. Copy the current deployed app and package files.
+3. Run the updated `mk_dash.py` only after setting `HA_HOST` and `HA_TOKEN`. Before saving,
+   the builder exports the existing dashboard to
+   `backups/dashboard/vh-inventory-pre-save-<timestamp>.json`. A non-"not found" export
+   failure aborts the dashboard overwrite.
+4. Reload pyscript or restart Home Assistant. Immediately before the first Ad-Hoc schema
+   migration, the backend uses SQLite's online backup API to create
+   `/config/vh_inventory.db.pre-adhoc-<timestamp>`. If that backup fails, the migration
+   aborts rather than changing the database.
+
+To roll back an upgrade, first stop Home Assistant or otherwise stop pyscript database
+writes. Restore the previous app/package/dashboard files, restore the chosen database backup
+to `/config/vh_inventory.db`, remove stale `vh_inventory.db-wal` and
+`vh_inventory.db-shm` files if present, and then restart Home Assistant. Do not restore a
+database while the running app can still write to it.

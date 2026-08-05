@@ -2,6 +2,7 @@ import sqlite3
 import datetime
 import json
 import time
+import unicodedata
 from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,11 @@ NONE = "(none)"
 SIMILARITY_THRESHOLD = 70
 SIMILARITY_POPUP_HEADER = "Similar product found"
 SIMILARITY_MSG_TEMPLATE = "Is {scanned_product} similar to {matched_product}"
+ADHOC_POPUP_HEADER = "Ad-Hoc product found"
+ADHOC_MSG_TEMPLATE = (
+    "The scanned product {scanned_product} resembles the Ad-Hoc product "
+    "{adhoc_product} (quantity {adhoc_quantity}). Remove the complete Ad-Hoc entry?"
+)
 # LVGL recolor hex (no leading #) applied to the {scanned_product}/{matched_product}
 # variables so they stand out in gold against the popup's dim-white base text.
 # Requires recolor: true on the scanner's lbl_popup_msg label.
@@ -150,6 +156,8 @@ DB_SCHEMA = {
         ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
         ("product_id", "INTEGER REFERENCES products(id)"),
         ("quantity", "INTEGER DEFAULT 1"),
+        ("ad_hoc_name", "TEXT"),
+        ("ad_hoc_key", "TEXT"),
     ],
     "scan_queue": [
         ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
@@ -185,6 +193,32 @@ def _conn():
     return sqlite3.connect(DB_PATH)
 
 
+def _backup_db_before_adhoc_migration(conn):
+    """Create an online SQLite backup immediately before adding Ad-Hoc columns."""
+    tables = set()
+    for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"):
+        tables.add(row[0])
+    if "shopping_list" not in tables:
+        return
+    existing = set()
+    for row in conn.execute("PRAGMA table_info(shopping_list)"):
+        existing.add(row[1])
+    if {"ad_hoc_name", "ad_hoc_key"} <= existing:
+        return
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = DB_PATH + ".pre-adhoc-" + stamp
+    backup = sqlite3.connect(backup_path)
+    try:
+        conn.backup(backup)
+    except Exception:
+        log.error("vh_inventory: Ad-Hoc migration backup failed; migration aborted")
+        raise
+    finally:
+        backup.close()
+    log.info("vh_inventory: pre-Ad-Hoc database backup created at %s" % backup_path)
+
+
 def _ensure_schema():
     """Idempotently build the whole database. Creates missing tables (fresh
     install) and adds any missing columns to existing tables (migrations).
@@ -203,6 +237,7 @@ def _ensure_schema():
                 conn.execute("ALTER TABLE %s RENAME TO %s" % (old, new))
                 log.info("vh_inventory: renamed table %s -> %s" % (old, new))
         conn.commit()
+        _backup_db_before_adhoc_migration(conn)
         for table in DB_SCHEMA_ORDER:
             cols = DB_SCHEMA[table]
             parts = ["%s %s" % (n, d) for (n, d) in cols]
@@ -220,6 +255,29 @@ def _ensure_schema():
                         log.warning(
                             "vh_inventory schema: cannot add %s.%s (%s)"
                             % (table, n, e))
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_shopping_adhoc_key "
+            "ON shopping_list(ad_hoc_key) WHERE ad_hoc_key IS NOT NULL")
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS shopping_list_validate_insert "
+            "BEFORE INSERT ON shopping_list "
+            "WHEN (NEW.product_id IS NULL AND "
+            "(NEW.ad_hoc_name IS NULL OR trim(NEW.ad_hoc_name)='' OR "
+            " NEW.ad_hoc_key IS NULL OR trim(NEW.ad_hoc_key)='')) "
+            "OR (NEW.product_id IS NOT NULL AND "
+            "(NEW.ad_hoc_name IS NOT NULL OR NEW.ad_hoc_key IS NOT NULL)) "
+            "BEGIN SELECT RAISE(ABORT, "
+            "'shopping_list requires either product_id or Ad-Hoc fields'); END")
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS shopping_list_validate_update "
+            "BEFORE UPDATE ON shopping_list "
+            "WHEN (NEW.product_id IS NULL AND "
+            "(NEW.ad_hoc_name IS NULL OR trim(NEW.ad_hoc_name)='' OR "
+            " NEW.ad_hoc_key IS NULL OR trim(NEW.ad_hoc_key)='')) "
+            "OR (NEW.product_id IS NOT NULL AND "
+            "(NEW.ad_hoc_name IS NOT NULL OR NEW.ad_hoc_key IS NOT NULL)) "
+            "BEGIN SELECT RAISE(ABORT, "
+            "'shopping_list requires either product_id or Ad-Hoc fields'); END")
         _purge_history(conn)
         conn.commit()
     finally:
@@ -286,17 +344,23 @@ def _load_inventory():
 
 
 def _load_shopping():
-    prod_id, _, _, _ = _prod_loc_maps()
     conn = _conn()
     try:
         rows = conn.execute(
-            "SELECT id,product_id,quantity FROM shopping_list ORDER BY id").fetchall()
+            "SELECT sl.id,sl.product_id,sl.quantity,sl.ad_hoc_name,"
+            "sl.ad_hoc_key,p.name FROM shopping_list sl "
+            "LEFT JOIN products p ON p.id=sl.product_id "
+            "ORDER BY sl.id").fetchall()
     finally:
         conn.close()
     out = []
-    for rid, pid, qty in rows:
+    for rid, pid, qty, ad_hoc_name, ad_hoc_key, product_name in rows:
+        is_ad_hoc = pid is None and bool((ad_hoc_name or "").strip())
         out.append({"id": rid, "product_id": pid, "quantity": qty,
-                    "product": prod_id.get(pid, "") if pid else ""})
+                    "product": ((ad_hoc_name or "").strip() if is_ad_hoc
+                                else (product_name or "")),
+                    "is_ad_hoc": 1 if is_ad_hoc else 0,
+                    "ad_hoc_key": ad_hoc_key or ""})
     return out
 
 
@@ -461,7 +525,85 @@ def _resolve_popup_device(device):
     return SIMILARITY_POPUP_DEVICE
 
 
-def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty):
+def _popup_device_key(device):
+    return _resolve_popup_device(device).replace("-", "_")
+
+
+def _popup_state_name(device, field):
+    return "pyscript.vh_popup_%s_%s" % (_popup_device_key(device), field)
+
+
+def _set_popup_context(device, kind, **values):
+    """Store popup context per scanner, with legacy globals during upgrade."""
+    dev = _popup_device_key(device)
+    values = dict(values)
+    values["kind"] = kind
+    values["created"] = str(int(time.time()))
+    for field, value in values.items():
+        state.set(_popup_state_name(dev, field),
+                  "" if value is None else str(value))
+    state.set("pyscript.vh_popup_kind", kind)
+    if "similarity_pid" in values:
+        state.set("pyscript.vh_similarity_match_pid",
+                  str(values.get("similarity_pid") or ""))
+    if "altstock_pid" in values:
+        state.set("pyscript.vh_altstock_pid",
+                  str(values.get("altstock_pid") or ""))
+    if "altstock_alt" in values:
+        state.set("pyscript.vh_altstock_alt",
+                  str(values.get("altstock_alt") or ""))
+
+
+def _popup_context(device, field):
+    try:
+        value = str(state.get(_popup_state_name(device, field))).strip()
+    except Exception:
+        value = ""
+    if value not in ("", "unknown", "unavailable", "None"):
+        return value
+    legacy = {
+        "kind": "pyscript.vh_popup_kind",
+        "similarity_pid": "pyscript.vh_similarity_match_pid",
+        "altstock_pid": "pyscript.vh_altstock_pid",
+        "altstock_alt": "pyscript.vh_altstock_alt",
+    }.get(field)
+    if not legacy:
+        return ""
+    try:
+        value = str(state.get(legacy)).strip()
+    except Exception:
+        value = ""
+    return "" if value in ("unknown", "unavailable", "None") else value
+
+
+def _popup_context_expired(device):
+    raw = _popup_context(device, "created")
+    if not raw:
+        return False
+    try:
+        return int(time.time()) - int(float(raw)) > 300
+    except Exception:
+        return True
+
+
+def _clear_popup_context(device=None):
+    """Clear context for one scanner plus legacy upgrade-state entities."""
+    dev = _popup_device_key(device)
+    fields = (
+        "kind", "created", "similarity_sid", "similarity_pid",
+        "similarity_key", "similarity_name", "similarity_qty",
+        "altstock_pid", "altstock_alt",
+    )
+    for field in fields:
+        state.set(_popup_state_name(dev, field), "")
+    state.set("pyscript.vh_popup_kind", "")
+    state.set("pyscript.vh_similarity_match_pid", "")
+    state.set("pyscript.vh_altstock_pid", "")
+    state.set("pyscript.vh_altstock_alt", "")
+    state.set("pyscript.vh_scan_device", "")
+
+
+def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty, device=None):
     """Raise the interactive alt-stock info popup on SIMILARITY_POPUP_DEVICE
     asking whether to add the just-emptied product to the shopping list even
     though a similar product (`alt_name`, `alt_qty` in stock) is on the shelf.
@@ -479,20 +621,15 @@ def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty):
                       .replace("{alt_stock_qty}", gold + str(alt_qty) + "#") \
                       .replace("{scanned_product}", gold + (pname or "") + "#") \
                       .replace("{cr}", "\n")
-    try:
-        scan_dev = str(state.get("pyscript.vh_scan_device"))
-    except Exception:
-        scan_dev = ""
-    dev = _resolve_popup_device(scan_dev).replace("-", "_")
-    state.set("pyscript.vh_popup_kind", "alt_stock")
-    state.set("pyscript.vh_altstock_pid", str(pid))
-    state.set("pyscript.vh_altstock_alt", alt_name or "")
+    dev = _popup_device_key(device)
+    _set_popup_context(dev, "alt_stock", altstock_pid=pid,
+                       altstock_alt=alt_name or "")
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
     switch.turn_on(entity_id="switch.%s_popup" % dev)
 
 
-def _reconcile_shopping(before, after):
+def _reconcile_shopping(before, after, device=None):
     """Reconcile the shopping list against an inventory change.
     before/after are {product_id: total}. For each product whose total:
       - increased (a > b): remove it from the shopping list, and
@@ -550,7 +687,8 @@ def _reconcile_shopping(before, after):
                                                      alt_meta.get("elapsed_ms"))))
                         changed = True
                         _announce_alt_stock(pname, alt_name, alt_qty)
-                        _raise_alt_stock_popup(pid, pname, alt_name, alt_qty)
+                        _raise_alt_stock_popup(
+                            pid, pname, alt_name, alt_qty, device)
                     else:
                         conn.execute(
                             "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
@@ -578,7 +716,8 @@ def _publish():
     conn = _conn()
     try:
         on_list = {r[0] for r in conn.execute(
-            "SELECT DISTINCT product_id FROM shopping_list").fetchall()}
+            "SELECT DISTINCT product_id FROM shopping_list "
+            "WHERE product_id IS NOT NULL").fetchall()}
     finally:
         conn.close()
     for p in products:
@@ -685,6 +824,17 @@ def _announce_shopping_add(pid):
         name, _ = _product_name_mfr(pid)
         if name:
             event.fire("vh_inventory_announce", kind="shopping_add", product=name)
+    except Exception:
+        pass
+
+
+def _announce_shopping_add_name(name):
+    """Announce a shopping-list addition that has no products-table row."""
+    try:
+        product = (name or "").strip()
+        if product:
+            event.fire("vh_inventory_announce", kind="shopping_add",
+                       product=product)
     except Exception:
         pass
 
@@ -906,7 +1056,7 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
-                outcome = _remove_inventory_qty(pid, 1)
+                outcome = _remove_inventory_qty(pid, 1, device)
                 nm, mf = _product_name_mfr(pid)
                 total = _total_stock(pid)
                 _update_scanner_display(device, nm, mf, total)
@@ -1322,7 +1472,7 @@ def _ensure_on_shopping(pid):
     _announce_shopping_add(pid)
 
 
-def _remove_inventory_qty(pid, qty):
+def _remove_inventory_qty(pid, qty, device=None):
     """Subtract qty from a product's stock, flooring at 0. Prefers the
     NULL-location row; if there is none but the product has exactly one stock
     row (e.g. one added manually at a named location), that row is used. If the
@@ -1349,7 +1499,7 @@ def _remove_inventory_qty(pid, qty):
         _log_history("adjust", "stock", existing["id"],
                      "Scan-use: stock -%d -> %d (product_id=%d)"
                      % (int(qty), newq, pid))
-        if _reconcile_shopping(before, _product_totals()):
+        if _reconcile_shopping(before, _product_totals(), device):
             _publish()
         return "use"
     _ensure_on_shopping(pid)
@@ -1447,6 +1597,20 @@ def _name_similarity(a, b):
     if not a or not b:
         return 0.0
     return max(_ratio(a, b), _token_set_ratio(a, b))
+
+
+def _normalize_adhoc_key(name):
+    """Return a stable accent-, case-, punctuation- and whitespace-insensitive key."""
+    text = unicodedata.normalize("NFKD", (name or "").strip())
+    without_marks = ""
+    for ch in text:
+        if not unicodedata.combining(ch):
+            without_marks += ch
+    normalized = ""
+    for ch in without_marks.casefold():
+        normalized += ch if ch.isalnum() else " "
+    text = normalized
+    return " ".join(text.split())
 
 
 def _ai_match_enabled():
@@ -1685,74 +1849,115 @@ def _helper_text(entity_id, fallback):
     return v
 
 
-def _check_shopping_similarity(scanned_name, device=None):
-    """After an Add-mode scan resolves to `scanned_name`, look for a product
-    already on the shopping list whose name is similar (>= the configured
-    threshold). If one is found, raise the info popup on SIMILARITY_POPUP_DEVICE
-    asking the user whether the two are the same product. Exact-name matches are
-    skipped (they are the same product, not merely a similar one). The matched
-    product's id is remembered in pyscript.vh_similarity_match_pid so the popup's
-    Yes button (vh_inventory_similarity_confirm) can remove that product from the
-    shopping list; No simply dismisses the popup.
+def _best_shopping_match(scanned, entries, exact_is_match):
+    """Return (entry, method, confidence, elapsed_ms) for the best candidate."""
+    scanned_key = _normalize_adhoc_key(scanned)
+    candidates = []
+    for entry in entries:
+        name = (entry.get("product") or "").strip()
+        if not name:
+            continue
+        if _normalize_adhoc_key(name) == scanned_key:
+            if exact_is_match:
+                return (entry, "exact", 100.0, 0)
+            continue
+        candidates.append(entry)
+    if not candidates:
+        return (None, None, None, None)
 
-    The threshold and popup header/message are read from HA helpers (configurable
-    on the Setup tab) and fall back to the module constants when unset."""
+    names = [entry["product"] for entry in candidates]
+    best_entry, method, confidence, elapsed_ms = None, None, None, None
+    if _ai_match_enabled():
+        matched, conf, ms, ok = _ai_same_product(scanned, names)
+        elapsed_ms, confidence = ms, conf
+        if ok:
+            method = "AI"
+            if matched:
+                for entry in candidates:
+                    if entry["product"].strip().lower() == matched.strip().lower():
+                        best_entry = entry
+                        break
+        elif not ok:
+            method = "AI-fallback"
+    if best_entry is None and (method is None or method == "AI-fallback"):
+        threshold = _similarity_threshold()
+        best_score = 0.0
+        for entry in candidates:
+            score = _name_similarity(scanned, entry["product"])
+            if score > best_score:
+                best_entry, best_score = entry, score
+        if best_entry is not None and best_score >= threshold:
+            confidence = best_score
+        else:
+            best_entry = None
+        if method is None:
+            method = "string"
+    return (best_entry, method, confidence, elapsed_ms)
+
+
+def _check_shopping_similarity(scanned_name, device=None):
+    """Prompt for an Ad-Hoc match first, then preserve normal-product matching."""
     scanned = (scanned_name or "").strip()
     if not scanned:
         return
-    candidates = []
-    for cand in _shopping_product_names():
-        if cand.strip().lower() == scanned.lower():
-            continue
-        candidates.append(cand)
-    if not candidates:
+    shopping = _load_shopping()
+    ad_hoc = [entry for entry in shopping if entry.get("is_ad_hoc") == 1]
+    normal = [entry for entry in shopping if entry.get("is_ad_hoc") != 1]
+
+    matched, method, confidence, elapsed_ms = _best_shopping_match(
+        scanned, ad_hoc, True)
+    is_ad_hoc = matched is not None
+    if matched is None:
+        matched, method, confidence, elapsed_ms = _best_shopping_match(
+            scanned, normal, False)
+    if matched is None:
         return
-    best_name, method, confidence, elapsed_ms = None, None, None, None
-    if _ai_match_enabled():
-        m, conf, ms, ok = _ai_same_product(scanned, candidates)
-        elapsed_ms, confidence = ms, conf
-        if ok:
-            best_name, method = m, "AI"
-        else:
-            method = "AI-fallback"
-    if best_name is None and (method is None or method == "AI-fallback"):
-        threshold = _similarity_threshold()
-        bn, bs = None, 0.0
-        for cand in candidates:
-            score = _name_similarity(scanned, cand)
-            if score > bs:
-                bn, bs = cand, score
-        if bn is not None and bs >= threshold:
-            best_name, confidence = bn, bs
-        if method is None:
-            method = "string"
-    if best_name is None:
-        return
-    header = _helper_text("input_text.vh_similarity_popup_header",
-                          SIMILARITY_POPUP_HEADER)
-    template = _helper_text("input_text.vh_similarity_msg",
-                            SIMILARITY_MSG_TEMPLATE)
+
+    matched_name = (matched.get("product") or "").strip()
+    qty = int(matched.get("quantity") or 1)
     gold = "#%s " % SIMILARITY_VAR_COLOR
-    message = template.replace("{scanned_product}", gold + scanned + "#") \
-                      .replace("{matched_product}", gold + best_name + "#") \
-                      .replace("{cr}", "\n")
-    best_pid = None
-    for entry in _load_shopping():
-        if (entry.get("product") or "").strip().lower() == best_name.strip().lower():
-            best_pid = entry.get("product_id")
-            break
-    state.set("pyscript.vh_similarity_match_pid",
-              str(best_pid) if best_pid is not None else "")
-    state.set("pyscript.vh_popup_kind", "similarity")
-    dev = _resolve_popup_device(device).replace("-", "_")
+    if is_ad_hoc:
+        header = _helper_text("input_text.vh_adhoc_similarity_popup_header",
+                              ADHOC_POPUP_HEADER)
+        template = _helper_text("input_text.vh_adhoc_similarity_msg",
+                                ADHOC_MSG_TEMPLATE)
+        message = template \
+            .replace("{scanned_product}", gold + scanned + "#") \
+            .replace("{adhoc_product}", gold + matched_name + "#") \
+            .replace("{adhoc_quantity}", gold + str(qty) + "#") \
+            .replace("{matched_product}", gold + matched_name + "#") \
+            .replace("{cr}", "\n")
+        kind = "adhoc_similarity"
+    else:
+        header = _helper_text("input_text.vh_similarity_popup_header",
+                              SIMILARITY_POPUP_HEADER)
+        template = _helper_text("input_text.vh_similarity_msg",
+                                SIMILARITY_MSG_TEMPLATE)
+        message = template \
+            .replace("{scanned_product}", gold + scanned + "#") \
+            .replace("{matched_product}", gold + matched_name + "#") \
+            .replace("{cr}", "\n")
+        kind = "similarity"
+
+    dev = _popup_device_key(device)
+    _set_popup_context(
+        dev, kind,
+        similarity_sid=matched.get("id"),
+        similarity_pid=matched.get("product_id"),
+        similarity_key=matched.get("ad_hoc_key") if is_ad_hoc else "",
+        similarity_name=matched_name,
+        similarity_qty=qty,
+    )
     text.set_value(entity_id="text.%s_popup_header" % dev, value=header)
     text.set_value(entity_id="text.%s_popup_message" % dev, value=message)
     switch.turn_on(entity_id="switch.%s_popup" % dev)
-    _announce_similar(scanned, best_name)
-    _log_history("similar", "shopping_list", None,
-                 "Add-scan '%s' ~ shopping '%s' -> popup [%s]"
-                 % (scanned, best_name,
-                    _match_meta_str(method, confidence, elapsed_ms)))
+    _announce_similar(scanned, matched_name)
+    action = "adhoc-similar" if is_ad_hoc else "similar"
+    _log_history(
+        action, "shopping_list", matched.get("id"),
+        "Add-scan '%s' ~ shopping '%s' -> %s popup [%s]"
+        % (scanned, matched_name, "Ad-Hoc" if is_ad_hoc else "product",
+           _match_meta_str(method, confidence, elapsed_ms)))
 
 
 # ---------- ONLINE BARCODE RESOLUTION ----------
@@ -2290,6 +2495,57 @@ def vh_inventory_adjust_stock(id=None, delta=0):
 
 # ---------- SHOPPING LIST ----------
 @service
+def vh_inventory_add_adhoc_shopping(name=None, quantity=1):
+    """Add an Ad-Hoc shopping item without creating a products-table row."""
+    display_name = ("" if name is None else str(name)).strip()
+    if not display_name:
+        raise ValueError("Ad-Hoc product name is required")
+    if len(display_name) > 255:
+        raise ValueError("Ad-Hoc product name must be 255 characters or fewer")
+    try:
+        qty = int(float(quantity))
+    except Exception:
+        raise ValueError("Ad-Hoc quantity must be a whole number")
+    if qty < 1 or qty > 99999:
+        raise ValueError("Ad-Hoc quantity must be between 1 and 99999")
+    key = _normalize_adhoc_key(display_name)
+    if not key:
+        raise ValueError("Ad-Hoc product name must contain letters or numbers")
+
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT id,quantity FROM shopping_list WHERE ad_hoc_key=?",
+            [key]).fetchone()
+        if row:
+            rid = int(row[0])
+            new_qty = int(row[1] or 0) + qty
+            if new_qty > 99999:
+                raise ValueError(
+                    "Merged Ad-Hoc quantity cannot exceed 99999")
+            conn.execute(
+                "UPDATE shopping_list SET ad_hoc_name=?,quantity=? WHERE id=?",
+                [display_name, new_qty, rid])
+            detail = "Merged Ad-Hoc '%s' +%d (quantity %d)" % (
+                display_name, qty, new_qty)
+        else:
+            cur = conn.execute(
+                "INSERT INTO shopping_list"
+                "(product_id,quantity,ad_hoc_name,ad_hoc_key) "
+                "VALUES(NULL,?,?,?)", [qty, display_name, key])
+            rid = int(cur.lastrowid)
+            detail = "Added Ad-Hoc '%s' x%d" % (display_name, qty)
+        _hist_row(conn, "adhoc-add", "shopping_list", rid, detail)
+        conn.commit()
+    finally:
+        conn.close()
+    _publish()
+    _announce_shopping_add_name(display_name)
+    return rid
+
+
+@service
 def vh_inventory_add_shopping(product=None, quantity=1):
     """Add a shopping-list row (product + quantity to buy)."""
     _, prod_by_name, _, _ = _prod_loc_maps()
@@ -2330,12 +2586,15 @@ def vh_inventory_adjust_shopping(id=None, delta=0):
     conn = _conn()
     try:
         row = conn.execute(
-            "SELECT quantity FROM shopping_list WHERE id=?", [rid]).fetchone()
+            "SELECT quantity,product_id FROM shopping_list WHERE id=?",
+            [rid]).fetchone()
     finally:
         conn.close()
     if row is None:
         return
     newq = int(row[0]) + d
+    if row[1] is None and newq > 99999:
+        raise ValueError("Ad-Hoc quantity cannot exceed 99999")
     if newq <= 0:
         _exec("DELETE FROM shopping_list WHERE id=?", [rid])
         _log_history("remove", "shopping_list", rid,
@@ -2372,69 +2631,74 @@ def vh_inventory_shopping_toggle(product_id=None):
 
 
 @service
-def vh_inventory_similarity_confirm():
+def vh_inventory_similarity_confirm(device=None):
     """Similarity popup 'Yes' pressed: the scanned product is the same as the
-    matched shopping-list product, so remove that matched product from the
-    shopping list. The matched product_id was remembered in the
-    pyscript.vh_similarity_match_pid state entity when the popup was raised.
-    Kept as a stable service name; delegates to _similarity_confirm()."""
-    _similarity_confirm()
+    matched shopping-list item, so remove that exact row."""
+    _similarity_confirm(device)
 
 
-def _popup_kind():
-    """Current barcode-01 info-popup context ('similarity' | 'alt_stock' | '')
-    remembered in pyscript.vh_popup_kind when a popup was raised. Lets the shared
-    Yes/No buttons dispatch to the right action."""
+def _popup_kind(device=None):
+    return _popup_context(device, "kind")
+
+
+def _similarity_confirm(device=None):
+    """Remove the exact shopping row shown in this scanner's popup."""
+    if _popup_context_expired(device):
+        log.warning("_similarity_confirm: popup context expired")
+        return False
     try:
-        k = str(state.get("pyscript.vh_popup_kind")).strip()
+        raw_sid = _popup_context(device, "similarity_sid")
+        sid = int(float(raw_sid)) if raw_sid else None
     except Exception:
-        k = ""
-    if k in ("unknown", "unavailable", "None"):
-        k = ""
-    return k
-
-
-def _clear_popup_context():
-    """Reset all remembered info-popup context state entities."""
-    state.set("pyscript.vh_popup_kind", "")
-    state.set("pyscript.vh_similarity_match_pid", "")
-    state.set("pyscript.vh_altstock_pid", "")
-    state.set("pyscript.vh_altstock_alt", "")
-    state.set("pyscript.vh_scan_device", "")
-
-
-def _similarity_confirm():
-    """Similarity 'Yes': remove the remembered matched shopping-list product."""
+        sid = None
+    raw_pid = _popup_context(device, "similarity_pid")
     try:
-        raw = str(state.get("pyscript.vh_similarity_match_pid")).strip()
+        pid = int(float(raw_pid)) if raw_pid else None
     except Exception:
-        raw = ""
-    if not raw or raw in ("unknown", "unavailable", "None"):
-        log.warning("_similarity_confirm: no remembered matched product")
-        return
+        pid = None
+    kind = _popup_kind(device)
+    key = _popup_context(device, "similarity_key")
+    name = _popup_context(device, "similarity_name")
+
+    conn = _conn()
     try:
-        pid = int(float(raw))
-    except Exception:
-        log.warning("_similarity_confirm: bad matched pid %r" % raw)
-        return
-    _exec("DELETE FROM shopping_list WHERE product_id=?", [pid])
-    _log_history("remove", "shopping_list", None,
-                 "Similarity Yes: removed matched product_id=%d from shopping list"
-                 % pid)
-    state.set("pyscript.vh_similarity_match_pid", "")
+        if sid is None and pid is not None:
+            row = conn.execute(
+                "SELECT id FROM shopping_list WHERE product_id=? "
+                "ORDER BY id LIMIT 1", [pid]).fetchone()
+            sid = int(row[0]) if row else None
+        if sid is None:
+            log.warning("_similarity_confirm: no remembered shopping row")
+            return False
+        if kind == "adhoc_similarity":
+            cur = conn.execute(
+                "DELETE FROM shopping_list WHERE id=? AND product_id IS NULL "
+                "AND ad_hoc_key=?", [sid, key])
+            detail = "Ad-Hoc similarity Yes: removed '%s' (id=%d)" % (
+                name or "?", sid)
+        else:
+            cur = conn.execute(
+                "DELETE FROM shopping_list WHERE id=? AND product_id=?",
+                [sid, pid])
+            detail = "Similarity Yes: removed product row id=%d product_id=%s" % (
+                sid, str(pid))
+        if cur.rowcount != 1:
+            log.warning(
+                "_similarity_confirm: matched row changed or was already removed")
+            return False
+        _hist_row(conn, "remove", "shopping_list", sid, detail)
+        conn.commit()
+    finally:
+        conn.close()
+    _publish()
+    return True
 
 
-def _alt_stock_confirm():
+def _alt_stock_confirm(device=None):
     """Alt-stock 'Yes': add the remembered just-emptied product to the shopping
     list anyway (even though a similar product is in stock)."""
-    try:
-        raw = str(state.get("pyscript.vh_altstock_pid")).strip()
-    except Exception:
-        raw = ""
-    try:
-        alt = str(state.get("pyscript.vh_altstock_alt")).strip()
-    except Exception:
-        alt = ""
+    raw = _popup_context(device, "altstock_pid")
+    alt = _popup_context(device, "altstock_alt")
     if not raw or raw in ("unknown", "unavailable", "None"):
         log.warning("_alt_stock_confirm: no remembered alt-stock product")
         return
@@ -2456,17 +2720,11 @@ def _alt_stock_confirm():
                  "in stock)" % (name, alt))
 
 
-def _alt_stock_dismiss():
+def _alt_stock_dismiss(device=None):
     """Alt-stock 'No': the just-emptied product stays off the shopping list
     (it already was); record the decision in history."""
-    try:
-        raw = str(state.get("pyscript.vh_altstock_pid")).strip()
-    except Exception:
-        raw = ""
-    try:
-        alt = str(state.get("pyscript.vh_altstock_alt")).strip()
-    except Exception:
-        alt = ""
+    raw = _popup_context(device, "altstock_pid")
+    alt = _popup_context(device, "altstock_alt")
     pid = None
     if raw and raw not in ("unknown", "unavailable", "None"):
         try:
@@ -2483,27 +2741,40 @@ def _alt_stock_dismiss():
 
 
 @service
-def vh_inventory_popup_confirm():
-    """barcode-01 info-popup 'Yes' pressed. Dispatch by popup kind: for the
+def vh_inventory_popup_confirm(device=None):
+    """Scanner info-popup 'Yes' pressed. Dispatch by popup kind: for the
     Add-mode similarity popup remove the matched product; for the Use-mode
     alt-stock popup add the just-emptied product to the shopping list."""
-    kind = _popup_kind()
+    kind = _popup_kind(device)
     if kind == "alt_stock":
-        _alt_stock_confirm()
+        _alt_stock_confirm(device)
     else:
-        _similarity_confirm()
-    _clear_popup_context()
+        _similarity_confirm(device)
+    _clear_popup_context(device)
 
 
 @service
-def vh_inventory_popup_dismiss():
-    """barcode-01 info-popup 'No' pressed. Dispatch by popup kind: the alt-stock
+def vh_inventory_popup_dismiss(device=None):
+    """Scanner info-popup 'No' pressed. Dispatch by popup kind: the alt-stock
     popup records that the product was kept off the list; the similarity popup is
     simply dismissed. Context is cleared either way."""
-    kind = _popup_kind()
+    kind = _popup_kind(device)
     if kind == "alt_stock":
-        _alt_stock_dismiss()
-    _clear_popup_context()
+        _alt_stock_dismiss(device)
+    elif kind in ("similarity", "adhoc_similarity"):
+        raw_sid = _popup_context(device, "similarity_sid")
+        name = _popup_context(device, "similarity_name")
+        sid = None
+        try:
+            sid = int(float(raw_sid)) if raw_sid else None
+        except Exception:
+            pass
+        _log_history(
+            "similar-keep", "shopping_list", sid,
+            "%s No: kept '%s' on shopping list"
+            % ("Ad-Hoc similarity" if kind == "adhoc_similarity"
+               else "Similarity", name or "?"))
+    _clear_popup_context(device)
 
 
 @service

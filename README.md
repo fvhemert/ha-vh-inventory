@@ -12,6 +12,11 @@ Smart **duplicate & alternative detection** helps keep the list clean: an Add-mo
 looks like a product already on your shopping list, or a Use-mode scan that empties a product
 while a similar one is still in stock, raises an interactive **Yes/No pop-up** on the scanner
 (with optional voice prompt) so you decide what ends up on the list.
+For items you need before you know the barcode, exact description, or manufacturer, the
+Shopping tab also supports **Ad-Hoc products**: add a name and quantity directly to the
+shopping list without creating an incomplete Products record. When a later Add-mode scan
+resolves to a similar product, the originating scanner asks whether to remove that exact
+Ad-Hoc entry.
 Searching any table matches on **product name or barcode**. The inventory stays tidy:
 products that run out (stock 0) drop off the list automatically while staying on your
 shopping list.

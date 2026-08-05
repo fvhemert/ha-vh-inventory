@@ -39,6 +39,10 @@ input_text:
     name: VH Products Search
   vh_shopping_search:
     name: VH Shopping Search
+  vh_adhoc_product_name:
+    name: VH Ad-Hoc Product Name
+    max: 255
+    icon: mdi:cart-plus
   vh_quse_search:
     name: VH Quick Use Search
   vh_tts_media_players:
@@ -63,6 +67,14 @@ input_text:
     icon: mdi:message-alert
   vh_similarity_msg:
     name: VH Similarity Message
+    max: 255
+    icon: mdi:message-text
+  vh_adhoc_similarity_popup_header:
+    name: VH Ad-Hoc Similarity Popup Header
+    max: 255
+    icon: mdi:message-alert
+  vh_adhoc_similarity_msg:
+    name: VH Ad-Hoc Similarity Message
     max: 255
     icon: mdi:message-text
   vh_ai_match_agent:
@@ -513,6 +525,13 @@ input_number:
     step: 1
     mode: box
     initial: 1
+  vh_adhoc_quantity:
+    name: VH Ad-Hoc Quantity
+    min: 1
+    max: 99999
+    step: 1
+    mode: box
+    initial: 1
   vh_tts_volume:
     name: VH TTS Volume
     min: 0
@@ -719,6 +738,14 @@ script:
         data:
           product: "{{ states('input_select.vh_shopping_product') }}"
           quantity: "{{ states('input_number.vh_shopping_quantity')|int }}"
+  vh_save_adhoc_shopping:
+    alias: VH Save Ad-Hoc Shopping Item
+    sequence:
+      - service: pyscript.vh_inventory_add_adhoc_shopping
+        data:
+          name: "{{ states('input_text.vh_adhoc_product_name') }}"
+          quantity: "{{ states('input_number.vh_adhoc_quantity')|int }}"
+      - service: script.vh_reset_adhoc_shopping
   vh_update_shopping:
     alias: VH Update Shopping
     sequence:
@@ -742,6 +769,15 @@ script:
         target: {entity_id: input_select.vh_shopping_product}
       - service: input_number.set_value
         target: {entity_id: input_number.vh_shopping_quantity}
+        data: {value: 1}
+  vh_reset_adhoc_shopping:
+    alias: VH Reset Ad-Hoc Shopping Item
+    sequence:
+      - service: input_text.set_value
+        target: {entity_id: input_text.vh_adhoc_product_name}
+        data: {value: ""}
+      - service: input_number.set_value
+        target: {entity_id: input_number.vh_adhoc_quantity}
         data: {value: 1}
   vh_reset_product_add:
     alias: VH Reset Product Add
@@ -1062,7 +1098,8 @@ automation:
       shopping list; for the Use-mode alt-stock popup it adds the just-emptied
       product to the shopping list. Then close the info popup on the scanner that
       fired (switch.<dev>_popup off) and reset that scanner's Yes switch back off.
-    mode: single
+    mode: parallel
+    max: 4
     triggers:
       - trigger: state
         entity_id:
@@ -1071,6 +1108,8 @@ automation:
         to: "on"
     actions:
       - service: pyscript.vh_inventory_popup_confirm
+        data:
+          device: "{{ trigger.entity_id | replace('switch.', '') | replace('_popup_yes', '') | replace('_', '-') }}"
       - service: switch.turn_off
         target:
           entity_id:
@@ -1086,7 +1125,8 @@ automation:
       for the alt-stock popup it records that the product was kept off the
       shopping list — then close the info popup on the scanner that fired
       (switch.<dev>_popup off) and reset that scanner's No switch back off.
-    mode: single
+    mode: parallel
+    max: 4
     triggers:
       - trigger: state
         entity_id:
@@ -1095,6 +1135,8 @@ automation:
         to: "on"
     actions:
       - service: pyscript.vh_inventory_popup_dismiss
+        data:
+          device: "{{ trigger.entity_id | replace('switch.', '') | replace('_popup_no', '') | replace('_', '-') }}"
       - service: switch.turn_off
         target:
           entity_id:
@@ -1429,6 +1471,22 @@ automation:
             {{ 'Is {scanned_product} similar to {matched_product}'
                if states('input_text.vh_similarity_msg') in ['unknown', 'unavailable', '']
                else states('input_text.vh_similarity_msg') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_adhoc_similarity_popup_header
+        data:
+          value: >-
+            {{ 'Ad-Hoc product found'
+               if states('input_text.vh_adhoc_similarity_popup_header') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_adhoc_similarity_popup_header') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vh_adhoc_similarity_msg
+        data:
+          value: >-
+            {{ 'The scanned product {scanned_product} resembles the Ad-Hoc product {adhoc_product} (quantity {adhoc_quantity}). Remove the complete Ad-Hoc entry?'
+               if states('input_text.vh_adhoc_similarity_msg') in ['unknown', 'unavailable', '']
+               else states('input_text.vh_adhoc_similarity_msg') }}
       - action: input_text.set_value
         target:
           entity_id: input_text.vh_ai_match_agent

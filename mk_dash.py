@@ -1,4 +1,4 @@
-import json, websocket, os, glob, urllib.request
+import json, websocket, os, glob, urllib.request, datetime
 
 # --- Connection settings -----------------------------------------------------
 # Set these via environment variables before running:
@@ -260,6 +260,21 @@ HASS = "document.querySelector('home-assistant').hass"
 def fld(name):
     """Null-safe field render: empty string when undefined/null, but keeps 0."""
     return "x.%s==null?'':x.%s" % (name, name)
+
+
+def shopping_product_field():
+    """Escape user data and add a compact translated badge for Ad-Hoc rows."""
+    return (
+      "(function(){"
+      "var s=(x.product==null?'':String(x.product));"
+      "var e=s.replace(/&/g,'&amp;').replace(/</g,'&lt;')"
+      ".replace(/>/g,'&gt;').replace(/\\\"/g,'&quot;').replace(/'/g,'&#39;');"
+      "if(Number(x.is_ad_hoc)!==1)return e;"
+      "return e+\" <span class='vh-i18n' style='display:inline-block;"
+      "margin-left:6px;padding:1px 6px;border:var(--vh-card-border);"
+      "border-radius:var(--vh-card-radius,4px);font-size:11px;"
+      "font-weight:bold;color:var(--vh-table-header-color,#4dabf5)'>Ad-Hoc</span>\";"
+      "})()")
 
 
 def id_col(attr):
@@ -601,12 +616,15 @@ def shop_adjust(icon, delta):
 
 shop_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Shopping List",
   "entities": {"include": "sensor.vh_inventory_shopping"}, "css": CSS,
-  "columns": [id_col("shopping"), {"name": "Product", "data": "shopping", "modify": fld("product")},
+  "columns": [id_col("shopping"), {"name": "Product", "data": "shopping", "modify": shopping_product_field()},
     {"name": "Quantity", "data": "shopping", "align": "center", "modify": fld("quantity"), "_w": "80px"},
     {"name": "-", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:minus", -1), "_w": "40px"},
     {"name": "+", "data": "shopping", "align": "center", "modify": shop_adjust("mdi:plus", 1), "_w": "40px"}]}
 shop_rows = ["input_select.vh_shopping_product", "input_number.vh_shopping_quantity"]
 shop_edit = popup("vh-edit-shopping", "Edit Shopping Item", "mdi:cart", shop_rows, "script.vh_update_shopping")
+adhoc_rows = ["input_text.vh_adhoc_product_name", "input_number.vh_adhoc_quantity"]
+adhoc_add = popup("vh-add-adhoc-shopping", "Add Ad-Hoc product", "mdi:cart-plus",
+  adhoc_rows, "script.vh_save_adhoc_shopping", "script.vh_reset_adhoc_shopping")
 
 # ----- Products tab -----
 prod_tbl = {"type": "custom:flex-table-card", "title": "VH-Inventory Products",
@@ -780,8 +798,12 @@ def tab_boxed(label, icon, tbl, add_hash, *popups, add_label="Add", extra=None, 
     button instead of a popup-opening Add button (e.g. a goto_tab_btn)."""
     ab = nav_btn if nav_btn is not None else add_btn(add_hash, add_label)
     ab["styles"]["card"] += [{"margin-left": "16px"}]
-    row = ab if extra is None else {"type": "horizontal-stack", "cards": [ab, extra]}
-    box = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [row]}
+    extras = [] if extra is None else (extra if isinstance(extra, list) else [extra])
+    row_cards = [ab] + extras
+    row = ab if not extras else {"type": "horizontal-stack", "cards": row_cards}
+    box = {"type": "vertical-stack",
+      "card_mod": WRAP_SCROLL_CM if len(extras) > 1 else WRAP_CM,
+      "cards": [row]}
     return {"attributes": {"label": label, "icon": icon, "stacked": True},
       "card": {"type": "vertical-stack", "cards": [box, tbl] + list(popups)}}
 
@@ -790,6 +812,8 @@ def tab_boxed(label, icon, tbl, add_hash, *popups, add_label="Add", extra=None, 
 print_shopping_btn = btn("Print", {"action": "perform-action",
   "perform_action": "script.vh_print_shopping", "data": {}})
 print_shopping_btn["styles"]["card"] += [{"margin-left": "8px"}]
+adhoc_shopping_btn = add_btn("vh-add-adhoc-shopping", "Add Ad-Hoc product")
+adhoc_shopping_btn["styles"]["card"] += [{"margin-left": "8px"}]
 
 
 # ----- Scan tab -----
@@ -1190,13 +1214,19 @@ _similarity_setting_rows = {"type": "entities", "card_mod": LANG_CM, "entities":
    "name": "Popup header", "icon": "mdi:message-alert"},
   {"entity": "input_text.vh_similarity_msg",
    "name": "Similarity message", "icon": "mdi:message-text"},
+  {"entity": "input_text.vh_adhoc_similarity_popup_header",
+   "name": "Ad-Hoc popup header", "icon": "mdi:message-alert"},
+  {"entity": "input_text.vh_adhoc_similarity_msg",
+   "name": "Ad-Hoc similarity message", "icon": "mdi:message-text"},
   {"entity": "input_boolean.vh_tts_announce_similar",
    "name": "Speak announcement", "icon": "mdi:bullhorn"},
   {"entity": "input_text.vh_tts_msg_similar",
    "name": "Announcement message", "icon": "mdi:message-text"}]}
 
 _similarity_msg_hint = {"type": "markdown",
-  "content": "*Tip: use {scanned_product} and {matched_product}; {cr} for a new line.*",
+  "content": "*Tip: normal matches use {scanned_product} and {matched_product}. "
+             "Ad-Hoc matches use {scanned_product}, {adhoc_product}, and "
+             "{adhoc_quantity}; {cr} starts a new line.*",
   "card_mod": HINT_CM}
 
 similarity_card = {"type": "vertical-stack", "card_mod": WRAP_CM, "cards": [
@@ -1452,7 +1482,9 @@ focus_boot = {"type": "custom:button-card", "show_name": False, "show_icon": Fal
 tabbed = {"type": "custom:tabbed-card-programmable", "grid_options": {"columns": "full", "rows": "auto"},
   "card_mod": {"style": CART_RED}, "styles": TAB_STYLES,
   "tabs": [
-    tab_boxed("Shopping", "mdi:cart", shop_tbl, None, shop_edit, add_label="Add item", extra=print_shopping_btn, nav_btn=goto_tab_btn("Add item", QUICK_ADD_TAB_INDEX)),
+    tab_boxed("Shopping", "mdi:cart", shop_tbl, None, shop_edit, adhoc_add,
+      add_label="Add item", extra=[adhoc_shopping_btn, print_shopping_btn],
+      nav_btn=goto_tab_btn("Add item", QUICK_ADD_TAB_INDEX)),
     addlist_tab,
     quse_tab,
     inv_tab,
@@ -1515,7 +1547,27 @@ _apply_flex_cm(view)
 ws = websocket.create_connection(f"ws://{HOST}/api/websocket")
 def r(): return json.loads(ws.recv())
 r(); ws.send(json.dumps({"type": "auth", "access_token": TOKEN})); r()
-ws.send(json.dumps({"id": 1, "type": "lovelace/config/save", "url_path": "vh-inventory",
+ws.send(json.dumps({"id": 1, "type": "lovelace/config", "url_path": "vh-inventory"}))
+current = r()
+if current.get("success"):
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "backups", "dashboard")
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(
+        backup_dir, "vh-inventory-pre-save-%s.json" % stamp)
+    with open(backup_path, "w", encoding="utf-8") as fh:
+        json.dump(current.get("result"), fh, ensure_ascii=False, indent=2)
+    print("dashboard backup:", backup_path)
+else:
+    err = current.get("error") or {}
+    msg = str(err.get("message") or err).lower()
+    if "not found" not in msg and "does not exist" not in msg:
+        ws.close()
+        raise RuntimeError("dashboard backup failed; save aborted: %s" % err)
+    print("dashboard backup: no existing dashboard (first publish)")
+
+ws.send(json.dumps({"id": 2, "type": "lovelace/config/save", "url_path": "vh-inventory",
   "config": {"title": "VH-Inventory", "resources": [
     {"url": "/hacsfiles/button-card/button-card.js", "type": "module"},
     {"url": "/hacsfiles/lovelace-card-mod/card-mod.js", "type": "module"}],
