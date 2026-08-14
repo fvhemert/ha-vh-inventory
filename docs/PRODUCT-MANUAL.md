@@ -150,7 +150,8 @@ dropdown**:
   products. Leave it on **All** to show everything.
 - Press the **printer icon** to print the inventory to the thermal printer. The printout is
   grouped by category; if a specific category is selected it prints only that one, otherwise
-  it prints every category.
+  it prints every category. The title remains centred and double-size, followed by the
+  category sections and a timestamped footer before the final cut.
 
 ### Handheld scanner mode (Add / Use)
 
@@ -224,7 +225,18 @@ printer. The receipt is organised **per store**: each store from the Stores tab 
 header followed by its items, and a final **Algemeen** section lists everything with no store
 assigned (or set to *All*). Add or rename stores on the Stores tab and the next printout
 reflects the change automatically. Ad-Hoc products have no store assignment and therefore
-print under **Algemeen**.
+print under **Algemeen**. The receipt keeps its centred double-size **Boodschappenlijst**
+title, item body, timestamped footer, and final partial cut together.
+
+For a network printer, enable **Keep persistent connection** under **Settings → Devices &
+services → ESC/POS Thermal Printer → Configure**. The receipt uses separately styled
+header, body, and footer sections; Keep Alive sends them over one ordered TCP stream.
+VH-Inventory queues repeated print requests, so pressing **Print** again while a receipt is
+still printing adds the next receipt to the queue instead of interleaving both jobs.
+
+If a receipt is split, reordered, misses its title/footer, or does not cut, first verify that
+**Keep persistent connection** is still enabled. Integration upgrades or printer
+reconfiguration can reset connection options.
 
 ---
 
@@ -580,6 +592,8 @@ that do not share words (e.g. different product names entirely).
   removes-from or adds-to stock. Buttons share the dark glass style of the touchscreen dashboards.
 - **Printing:** the shopping list prints grouped per store; the inventory prints grouped per
   category (filtered to the selected category, or all). Both use the ESC/POS thermal printer.
+  Network printers must have **Keep Alive** enabled in the integration options to keep the
+  styled header, body and footer together as one ordered receipt.
 - **Pop-ups close on Save:** Add/Edit dialogs close themselves after a successful save.
 - **Cascade delete:** deleting a product cleans up its inventory and shopping-list rows.
 - **Shopping list:** pressing **–** at quantity 1 removes the item from the list.

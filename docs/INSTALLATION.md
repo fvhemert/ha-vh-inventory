@@ -54,7 +54,12 @@ VH-Inventory has three layers:
 - *(Optional — for printing)* An **ESC/POS thermal printer** (developed against an
   **Epson TM-T20II**) reachable from Home Assistant, plus the **ESC/POS Printer**
   integration that provides the `escpos_printer.print_text` service. Only needed if you want
-  the Shopping-list and Inventory **Print** features.
+  the Shopping-list and Inventory **Print** features. For a network printer, enable
+  **Keep Alive** in the integration options so each styled receipt uses one ordered TCP
+  stream; otherwise its header, body and footer can be reordered or cut separately.
+  Configure it under **Settings → Devices & services → ESC/POS Thermal Printer → Configure**:
+  select the correct printer profile and line width, enable **Keep persistent connection**,
+  and use a modest status interval (for example, 60 seconds) to detect stale connections.
 - *(Optional — for spoken announcements)* The **[Chime TTS](https://github.com/nimroddolev/chime_tts)**
   integration (install via HACS) and one or more **Sonos** speakers, plus a TTS platform
   (e.g. Home Assistant Cloud). Only needed for the Setup-tab *Spoken announcements (TTS)*
@@ -210,9 +215,10 @@ This creates, among others:
 - Scripts such as `script.vh_save_product`, `script.vh_scan_add`, `script.vh_scan_use`,
   `script.vh_save_resolved_product`, etc.
 - Printing scripts `script.vh_print_shopping` (per-store receipt) and
-  `script.vh_print_stock` (grouped per category) — these call the
+  `script.vh_print_inventory` (grouped per category) — these call the
   `escpos_printer.print_text` service and are only functional if the ESC/POS Printer
-  integration is installed (see Prerequisites).
+  integration is installed and network Keep Alive is enabled (see Prerequisites). Both
+  scripts use queued mode, so repeated print requests are processed in order.
 
 ---
 

@@ -52,6 +52,11 @@ shopping list.
    ```
    Open `http://<your-ha>/vh-inventory/main`.
 
+> **Network thermal printing:** in **Settings → Devices & services → ESC/POS Thermal
+> Printer → Configure**, enable **Keep persistent connection**. VH-Inventory uses separate
+> styled header, body, and footer sections; Keep Alive keeps them on one ordered TCP stream.
+> The print scripts are queued so repeated button presses cannot overlap.
+
 Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATION.md)**.
 
 ## Documentation

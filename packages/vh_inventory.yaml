@@ -825,7 +825,12 @@ script:
       Print the VH-Inventory shopping list to the Epson TM-T20II (ESC/POS)
       thermal printer, grouped per store (bold store header + its items). Items
       whose product has no store or store "All" go under a final "Algemeen"
-      section. Reads sensor.vh_inventory_shopping and sensor.vh_inventory_products.
+      section. Requires Keep Alive on the network printer integration so the
+      styled header, body and footer remain one ordered receipt. Reads
+      sensor.vh_inventory_shopping and sensor.vh_inventory_products.
+    mode: queued
+    max: 5
+    max_exceeded: silent
     sequence:
       - service: escpos_printer.print_text
         data:
@@ -897,7 +902,12 @@ script:
       thermal printer. Lists every product with total quantity > 0 (summed across
       locations), grouped per category; products with no category go under a
       final "Algemeen" section. Product name left, total quantity right-aligned.
-      Reads sensor.vh_inventory_stock and sensor.vh_inventory_categories.
+      Requires Keep Alive on the network printer integration so the styled
+      header, body and footer remain one ordered receipt. Reads
+      sensor.vh_inventory_stock and sensor.vh_inventory_categories.
+    mode: queued
+    max: 5
+    max_exceeded: silent
     sequence:
       - variables:
           body_text: |-
