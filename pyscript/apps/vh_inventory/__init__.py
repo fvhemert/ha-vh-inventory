@@ -190,7 +190,16 @@ DB_SCHEMA_ORDER = [
 
 
 def _conn():
-    return sqlite3.connect(DB_PATH)
+    # WAL + synchronous=NORMAL: readers no longer block behind a writer (and
+    # vice versa), which matters because vh_inventory_poll() runs a write
+    # transaction (_ensure_schema -> _purge_history) every 60s via
+    # @time_trigger - under the default rollback-journal mode that could
+    # serialize with a scan's own writes and stall it. Safe/standard combo
+    # recommended by SQLite for concurrent single-writer/multi-reader use.
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
 
 
 def _backup_db_before_adhoc_migration(conn):
@@ -384,9 +393,16 @@ def _load_products():
     return out
 
 
-def _sync_selects():
+def _gather_select_maps():
+    """Pure DB reads for _sync_selects(); safe to run via task.executor."""
     _, cat_by_name, _, store_by_name = _name_maps()
     _, prod_by_name, _, loc_by_name = _prod_loc_maps()
+    return cat_by_name, store_by_name, prod_by_name, loc_by_name
+
+
+def _sync_selects():
+    cat_by_name, store_by_name, prod_by_name, loc_by_name = \
+        task.executor(_gather_select_maps)
     pairs = [
         ("input_select.vh_product_category", [NONE] + sorted(cat_by_name.keys())),
         ("input_select.vh_product_store", [NONE] + sorted(store_by_name.keys())),
@@ -711,7 +727,14 @@ def _reconcile_shopping(before, after, device=None):
     return changed
 
 
-def _publish():
+def _gather_publish_data():
+    """Pure-Python/SQLite data gathering for _publish() - no HA/pyscript
+    built-ins are called here, so this whole function can safely run off the
+    event loop via task.executor(). This is the expensive full-table reload
+    (products/stock/shopping/scan_queue/history + every TABLES entry); moving
+    it to a worker thread means a scan's single remaining publish no longer
+    blocks Home Assistant's event loop (and everything else it's running:
+    other ESPHome devices, Zigbee, MQTT, automations...) while it runs."""
     products = _load_products()
     conn = _conn()
     try:
@@ -722,43 +745,52 @@ def _publish():
         conn.close()
     for p in products:
         p["on_shopping"] = 1 if p["id"] in on_list else 0
-    state.set("sensor.vh_inventory_products", len(products), {
-        "friendly_name": "VH Inventory Products",
-        "icon": "mdi:package-variant-closed", "products": products})
     inv = _load_inventory()
-    state.set("sensor.vh_inventory_stock", len(inv), {
-        "friendly_name": "VH Inventory Stock",
-        "icon": "mdi:clipboard-list", "stock": inv})
     shopping = _load_shopping()
-    state.set("sensor.vh_inventory_shopping", len(shopping), {
-        "friendly_name": "VH Inventory Shopping List",
-        "icon": "mdi:cart", "shopping": shopping})
     scanq = _load("scan_queue", ["id", "barcode", "action", "state", "name",
         "manufacturer", "description", "unit", "category", "image_url",
         "provider"], "id DESC")
+    hist = _load("history", ["id", "timestamp", "action", "entity",
+        "entity_id", "detail"], "id DESC LIMIT %d" % HISTORY_DISPLAY_LIMIT)
+    tables = {}
+    for sensor, (table, cols, fname, icon, attr) in TABLES.items():
+        tables[sensor] = (_load(table, cols, cols[1]), fname, icon, attr)
+    return products, inv, shopping, scanq, hist, tables
+
+
+def _publish():
+    products, inv, shopping, scanq, hist, tables = \
+        task.executor(_gather_publish_data)
+    state.set("sensor.vh_inventory_products", len(products), {
+        "friendly_name": "VH Inventory Products",
+        "icon": "mdi:package-variant-closed", "products": products})
+    state.set("sensor.vh_inventory_stock", len(inv), {
+        "friendly_name": "VH Inventory Stock",
+        "icon": "mdi:clipboard-list", "stock": inv})
+    state.set("sensor.vh_inventory_shopping", len(shopping), {
+        "friendly_name": "VH Inventory Shopping List",
+        "icon": "mdi:cart", "shopping": shopping})
     state.set("sensor.vh_inventory_scan_queue", len(scanq), {
         "friendly_name": "VH Inventory Scan Queue",
         "icon": "mdi:barcode-scan", "scan_queue": scanq})
-    hist = _load("history", ["id", "timestamp", "action", "entity",
-        "entity_id", "detail"], "id DESC LIMIT %d" % HISTORY_DISPLAY_LIMIT)
     state.set("sensor.vh_inventory_history", len(hist), {
         "friendly_name": "VH Inventory History",
         "icon": "mdi:history", "history": hist})
-    for sensor, (table, cols, fname, icon, attr) in TABLES.items():
-        items = _load(table, cols, cols[1])
+    for sensor, (items, fname, icon, attr) in tables.items():
         state.set(sensor, len(items), {
             "friendly_name": fname, "icon": icon, attr: items})
     _sync_selects()
 
 
-def _exec(sql, params):
+def _exec(sql, params, publish=True):
     conn = _conn()
     try:
         conn.execute(sql, params)
         conn.commit()
     finally:
         conn.close()
-    _publish()
+    if publish:
+        _publish()
 
 
 def _insert_id(sql, params):
@@ -803,15 +835,21 @@ def _hist_row(conn, action, entity, entity_id, detail):
     _purge_history(conn)
 
 
-def _log_history(action, entity, entity_id=None, detail=None):
-    """Record an action in the history table and refresh sensors."""
+def _log_history(action, entity, entity_id=None, detail=None, publish=True):
+    """Record an action in the history table and refresh sensors.
+    publish=False lets a caller that logs several times in a row (e.g. a
+    single scan: scan logged, stock adjusted, scan_queue row deleted) defer
+    the sensor refresh and do it once itself at the end, instead of
+    rebuilding every sensor's full table/attribute on every intermediate
+    history write."""
     conn = _conn()
     try:
         _hist_row(conn, action, entity, entity_id, detail)
         conn.commit()
     finally:
         conn.close()
-    _publish()
+    if publish:
+        _publish()
 
 
 def _announce_shopping_add(pid):
@@ -1027,7 +1065,24 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
     scanner's on-screen text entities.
     If the barcode already matches a product, state is 'Exist'. Otherwise the
     row is inserted as 'Lookup' and an online resolution is attempted, setting
-    state to 'New' (resolved) or 'Unknown' (not resolvable)."""
+    state to 'New' (resolved) or 'Unknown' (not resolvable).
+    PERFORMANCE: every DB-mutating helper below is called with publish=False so
+    the (expensive, full-table) sensor refresh does NOT run after each
+    intermediate step - it previously ran 3-5x per scan (once per _log_history/
+    _exec call), which is what made the scanner display take several seconds
+    (sometimes 10+) to update as the database grew. _update_scanner_display is
+    called first (it only pushes 3 small text entities to the scanner itself,
+    not the dashboard sensors) so the user sees a result immediately; the single
+    deferred _publish() then refreshes the dashboard sensors once, after.
+    PERFORMANCE: _check_shopping_similarity() (which can call the Gemini AI
+    conversation agent, a multi-second network round trip) is dispatched via
+    task.create() instead of called inline, so it runs as an independent,
+    concurrent pyscript task and can never delay this function's return (and
+    therefore never delay the scanner's on-screen result) - confirmed live:
+    before this, the scanner's product-name entity updated in ~1s but the full
+    scan call (and the resulting ESPHome display push, which only flushes once
+    this function yields/returns) took 10-12s whenever the shopping list had
+    items to compare against."""
     if action not in ("Add", "Use"):
         return None
     bc = ("" if barcode is None else str(barcode)).strip()
@@ -1040,51 +1095,57 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
         rid = _insert_id("INSERT INTO scan_queue(barcode, action, state) "
                          "VALUES(?, ?, 'Exist')", [bc, action])
         _log_history("scan", "scan_queue", rid,
-                     "Scanned %s (%s) - already a product (Exist)" % (bc, action))
+                     "Scanned %s (%s) - already a product (Exist)" % (bc, action),
+                     publish=False)
         # Case 2: Add + Exist -> add 1 to stock (merge if already present).
         if action == "Add":
             pid = _product_id_for_barcode(bc)
             if pid:
-                _add_inventory_qty(pid, 1)
+                _add_inventory_qty(pid, 1, publish=False)
                 nm, mf = _product_name_mfr(pid)
                 _update_scanner_display(device, nm, mf, _total_stock(pid))
-                _check_shopping_similarity(nm, device)
-                _delete_scan_queue_row(rid, action, "Exist")
+                task.create(_check_shopping_similarity, nm, device)
+                _delete_scan_queue_row(rid, action, "Exist", publish=False)
+                _publish()
                 return "add"
         # Case 3: Use + Exist -> decrement stock (product in inventory) or, when
         # there is no stock left, put it on the shopping list instead.
         elif action == "Use":
             pid = _product_id_for_barcode(bc)
             if pid:
-                outcome = _remove_inventory_qty(pid, 1, device)
+                outcome = _remove_inventory_qty(pid, 1, device, publish=False)
                 nm, mf = _product_name_mfr(pid)
                 total = _total_stock(pid)
                 _update_scanner_display(device, nm, mf, total)
                 if outcome == "use" and total >= 1:
                     _announce_scan_used(pid, total)
-                _delete_scan_queue_row(rid, action, "Exist")
+                _delete_scan_queue_row(rid, action, "Exist", publish=False)
+                _publish()
                 return outcome
+        _publish()
         return None
     rid = _insert_id(
         "INSERT INTO scan_queue(barcode, action, state) VALUES(?, ?, 'Lookup')",
         [bc, action])
-    _log_history("scan", "scan_queue", rid, "Scanned %s (%s)" % (bc, action))
-    info = _scan_resolve_row(rid, bc)
+    _log_history("scan", "scan_queue", rid, "Scanned %s (%s)" % (bc, action),
+                 publish=False)
+    info = _scan_resolve_row(rid, bc, publish=False)
     # Case 1: Add + New -> create the product and stock 1.
     if action == "Add" and info:
-        pid = _create_product_from_scan(bc, info)
+        pid = _create_product_from_scan(bc, info, publish=False)
         if pid:
-            _add_inventory_qty(pid, 1)
+            _add_inventory_qty(pid, 1, publish=False)
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
-            _check_shopping_similarity(nm, device)
-            _delete_scan_queue_row(rid, action, "New")
+            task.create(_check_shopping_similarity, nm, device)
+            _delete_scan_queue_row(rid, action, "New", publish=False)
+            _publish()
             return "add"
     # Case 4: Use + New -> create product (same settings) and put it on the
     # shopping list at its auto-add quantity (as if below threshold). No stock
     # row is created: a zero-stock product must not appear in the inventory.
     elif action == "Use" and info:
-        pid = _create_product_from_scan(bc, info)
+        pid = _create_product_from_scan(bc, info, publish=False)
         if pid:
             prod = _fetch_one_sql(
                 "SELECT auto_add_quantity FROM products WHERE id=?", [pid])
@@ -1094,17 +1155,20 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
                 [pid, add_qty])
             _log_history("auto-add", "shopping_list", shop_id,
                          "Scan-use(new): added to shopping qty=%d (product_id=%d)"
-                         % (add_qty, pid))
+                         % (add_qty, pid), publish=False)
             _announce_shopping_add(pid)
             nm, mf = _product_name_mfr(pid)
             _update_scanner_display(device, nm, mf, _total_stock(pid))
-            _delete_scan_queue_row(rid, action, "New")
+            _delete_scan_queue_row(rid, action, "New", publish=False)
+            _publish()
             return "shopping"
     # Unresolved (Unknown): no product created; reflect the failed lookup on the
     # scanner display so the user gets feedback instead of a stale screen.
     if not info:
         _update_scanner_display(device, "Handmatig toevoegen", "Niet gevonden", "-")
+        _publish()
         return "notfound"
+    _publish()
     return None
 
 
@@ -1254,10 +1318,11 @@ def vh_inventory_save_resolved(name=None, barcode=None, description=None,
     _delete_scan_queue_row(rid, action, "Unknown")
 
 
-def _scan_resolve_row(rid, bc):
+def _scan_resolve_row(rid, bc, publish=True):
     """Look the barcode up online and store the result on the scan_queue row.
     Sets state 'New' with product details on success, else 'Unknown'.
-    Returns the resolved info dict (or None if not resolvable)."""
+    Returns the resolved info dict (or None if not resolvable).
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     info = _resolve_barcode(bc)
     if info:
         _exec(
@@ -1266,14 +1331,16 @@ def _scan_resolve_row(rid, bc):
             "WHERE id=?",
             [info.get("name"), info.get("manufacturer"),
              info.get("description"), info.get("unit"), info.get("category"),
-             info.get("image_url"), info.get("provider"), rid])
+             info.get("image_url"), info.get("provider"), rid], publish=publish)
         _log_history("resolve", "scan_queue", rid,
                      "Resolved %s -> '%s' via %s"
-                     % (bc, info.get("name"), info.get("provider")))
+                     % (bc, info.get("name"), info.get("provider")),
+                     publish=publish)
     else:
-        _exec("UPDATE scan_queue SET state='Unknown' WHERE id=?", [rid])
+        _exec("UPDATE scan_queue SET state='Unknown' WHERE id=?", [rid],
+              publish=publish)
         _log_history("resolve", "scan_queue", rid,
-                     "Could not resolve %s (Unknown)" % bc)
+                     "Could not resolve %s (Unknown)" % bc, publish=publish)
         _announce_scan_unresolved(bc)
     return info
 
@@ -1399,10 +1466,11 @@ def _notify_uncategorised(pid, name, mfr=None, hint=None):
         pass
 
 
-def _apply_suggested_category(pid, name, mfr, hint=None):
+def _apply_suggested_category(pid, name, mfr, hint=None, publish=True):
     """For a freshly created product with no category, auto-assign a suggested
     category (from _suggest_category) or, when nothing matches, flag it for
-    manual categorisation. Never overrides a category the user already set."""
+    manual categorisation. Never overrides a category the user already set.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     if pid in (None, ""):
         return
     row = _fetch_one_sql("SELECT category_id FROM products WHERE id=?", [int(pid)])
@@ -1412,16 +1480,18 @@ def _apply_suggested_category(pid, name, mfr, hint=None):
     sug = _suggest_category(name, mfr, cat_by_name)
     if sug:
         _exec("UPDATE products SET category_id=? WHERE id=? AND category_id IS NULL",
-              [_resolve(sug, cat_by_name), int(pid)])
+              [_resolve(sug, cat_by_name), int(pid)], publish=publish)
         _log_history("update", "products", int(pid),
-                     "Auto-categorised as '%s' (suggested)" % sug)
+                     "Auto-categorised as '%s' (suggested)" % sug,
+                     publish=publish)
     else:
         _notify_uncategorised(int(pid), name, mfr, hint)
 
 
-def _create_product_from_scan(bc, info):
+def _create_product_from_scan(bc, info, publish=True):
     """Create a product from a resolved scan with auto-add enabled (1/1/1).
-    Returns the new products.id."""
+    Returns the new products.id.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     info = info or {}
     name = (info.get("name") or "").strip() or ("Product %s" % bc)
     barcode = int(bc) if (bc and str(bc).isdigit()) else None
@@ -1433,18 +1503,19 @@ def _create_product_from_scan(bc, info):
          info.get("unit")])
     _log_history("add", "products", pid,
                  "Auto-created product '%s' from scan %s (auto-add 1/1/1)"
-                 % (name, bc))
+                 % (name, bc), publish=publish)
     _apply_suggested_category(pid, name, info.get("manufacturer"),
-                              info.get("category"))
+                              info.get("category"), publish=publish)
     return pid
 
 
-def _add_inventory_qty(pid, qty):
+def _add_inventory_qty(pid, qty, publish=True):
     """Add qty to a product's stock, merging into an existing row when possible
     so the quantity increments in place. Prefers the NULL-location row; if there
     is none but the product has exactly one stock row (e.g. one added manually
     at a named location), that row is incremented; otherwise a new NULL-location
-    row is created. Reconciles the shopping list afterwards."""
+    row is created. Reconciles the shopping list afterwards.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     before = _product_totals()
     existing = _fetch_one_sql(
         "SELECT id,quantity FROM stock "
@@ -1457,25 +1528,28 @@ def _add_inventory_qty(pid, qty):
                 "SELECT id,quantity FROM stock WHERE product_id=?", [pid])
     if existing:
         _exec("UPDATE stock SET quantity=quantity+? WHERE id=?",
-              [int(qty), existing["id"]])
+              [int(qty), existing["id"]], publish=publish)
         _log_history("adjust", "stock", existing["id"],
-                     "Scan-add: stock +%d (product_id=%d)" % (int(qty), pid))
+                     "Scan-add: stock +%d (product_id=%d)" % (int(qty), pid),
+                     publish=publish)
     else:
         nid = _insert_id(
             "INSERT INTO stock(product_id,location_id,quantity) "
             "VALUES(?,NULL,?)", [pid, int(qty)])
         _log_history("add", "stock", nid,
-                     "Scan-add: stock %d (product_id=%d)" % (int(qty), pid))
-    if _reconcile_shopping(before, _product_totals()):
+                     "Scan-add: stock %d (product_id=%d)" % (int(qty), pid),
+                     publish=publish)
+    if _reconcile_shopping(before, _product_totals()) and publish:
         _publish()
 
 
-def _ensure_on_shopping(pid):
+def _ensure_on_shopping(pid, publish=True):
     """Ensure a product is on the shopping list. Used when a Use-scan consumes a
     product that has no stock left (so it dropped out of / was never in the
     inventory) but is still needed. Adds it at its auto-add quantity if not
     already present, then fires the shopping-add announcement. Mirrors the
-    outcome of scanning Use on a brand-new product."""
+    outcome of scanning Use on a brand-new product.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     on = _fetch_one_sql(
         "SELECT 1 AS x FROM shopping_list WHERE product_id=?", [pid])
     if on:
@@ -1488,11 +1562,11 @@ def _ensure_on_shopping(pid):
         [pid, add_qty])
     _log_history("auto-add", "shopping_list", shop_id,
                  "Scan-use(empty): added to shopping qty=%d (product_id=%d)"
-                 % (add_qty, pid))
+                 % (add_qty, pid), publish=publish)
     _announce_shopping_add(pid)
 
 
-def _remove_inventory_qty(pid, qty, device=None):
+def _remove_inventory_qty(pid, qty, device=None, publish=True):
     """Subtract qty from a product's stock, flooring at 0. Prefers the
     NULL-location row; if there is none but the product has exactly one stock
     row (e.g. one added manually at a named location), that row is used. If the
@@ -1500,7 +1574,8 @@ def _remove_inventory_qty(pid, qty, device=None):
     used up and dropped out of the inventory), put it on the shopping list
     instead. Reconciles the shopping list afterwards.
     Returns 'use' when stock was decremented, or 'shopping' when the product had
-    no stock and was (ensured) on the shopping list instead."""
+    no stock and was (ensured) on the shopping list instead.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     before = _product_totals()
     existing = _fetch_one_sql(
         "SELECT id,quantity FROM stock "
@@ -1515,25 +1590,28 @@ def _remove_inventory_qty(pid, qty, device=None):
         newq = existing["quantity"] - int(qty)
         if newq < 0:
             newq = 0
-        _exec("UPDATE stock SET quantity=? WHERE id=?", [newq, existing["id"]])
+        _exec("UPDATE stock SET quantity=? WHERE id=?", [newq, existing["id"]],
+              publish=publish)
         _log_history("adjust", "stock", existing["id"],
                      "Scan-use: stock -%d -> %d (product_id=%d)"
-                     % (int(qty), newq, pid))
-        if _reconcile_shopping(before, _product_totals(), device):
+                     % (int(qty), newq, pid), publish=publish)
+        if _reconcile_shopping(before, _product_totals(), device) and publish:
             _publish()
         return "use"
-    _ensure_on_shopping(pid)
+    _ensure_on_shopping(pid, publish=publish)
     return "shopping"
 
 
-def _delete_scan_queue_row(rid, action, state):
+def _delete_scan_queue_row(rid, action, state, publish=True):
     """Remove a scan_queue row whose action has been fully completed.
-    The action is preserved in the history audit trail."""
+    The action is preserved in the history audit trail.
+    publish=False defers the sensor refresh to the caller (see _log_history)."""
     if not rid:
         return
-    _exec("DELETE FROM scan_queue WHERE id=?", [rid])
+    _exec("DELETE FROM scan_queue WHERE id=?", [rid], publish=publish)
     _log_history("delete", "scan_queue", rid,
-                 "Completed %s (%s) - removed from scan queue" % (action, state))
+                 "Completed %s (%s) - removed from scan queue" % (action, state),
+                 publish=publish)
 
 
 def _product_name_mfr(pid):
