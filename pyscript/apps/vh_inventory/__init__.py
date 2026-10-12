@@ -189,6 +189,7 @@ DB_SCHEMA_ORDER = [
 ]
 
 
+@pyscript_compile
 def _conn():
     # WAL + synchronous=NORMAL: readers no longer block behind a writer (and
     # vice versa), which matters because vh_inventory_poll() runs a write
@@ -196,6 +197,9 @@ def _conn():
     # @time_trigger - under the default rollback-journal mode that could
     # serialize with a scan's own writes and stall it. Safe/standard combo
     # recommended by SQLite for concurrent single-writer/multi-reader use.
+    # @pyscript_compile: native-compiled so this (and everything it's called
+    # from) is usable via task.executor() - pyscript-interpreted functions
+    # can't be passed to task.executor directly.
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -293,6 +297,7 @@ def _ensure_schema():
         conn.close()
 
 
+@pyscript_compile
 def _load(table, cols, order):
     conn = _conn()
     try:
@@ -304,6 +309,7 @@ def _load(table, cols, order):
     return [dict(zip(cols, r)) for r in rows]
 
 
+@pyscript_compile
 def _name_maps():
     """Return (cat_by_id, cat_by_name, store_by_id, store_by_name)."""
     conn = _conn()
@@ -316,6 +322,7 @@ def _name_maps():
             {i: n for i, n in stores}, {n: i for i, n in stores})
 
 
+@pyscript_compile
 def _prod_loc_maps():
     """Return (prod_by_id, prod_by_name, loc_by_id, loc_by_name)."""
     conn = _conn()
@@ -328,6 +335,7 @@ def _prod_loc_maps():
             {i: n for i, n in locs}, {n: i for i, n in locs})
 
 
+@pyscript_compile
 def _load_inventory():
     prod_id, _, loc_id, _ = _prod_loc_maps()
     conn = _conn()
@@ -352,6 +360,7 @@ def _load_inventory():
     return out
 
 
+@pyscript_compile
 def _load_shopping():
     conn = _conn()
     try:
@@ -373,6 +382,7 @@ def _load_shopping():
     return out
 
 
+@pyscript_compile
 def _load_products():
     cat_id, _, store_id, _ = _name_maps()
     cols = ["id", "barcode", "name", "description", "manufacturer", "unit",
@@ -393,6 +403,7 @@ def _load_products():
     return out
 
 
+@pyscript_compile
 def _gather_select_maps():
     """Pure DB reads for _sync_selects(); safe to run via task.executor."""
     _, cat_by_name, _, store_by_name = _name_maps()
@@ -727,6 +738,7 @@ def _reconcile_shopping(before, after, device=None):
     return changed
 
 
+@pyscript_compile
 def _gather_publish_data():
     """Pure-Python/SQLite data gathering for _publish() - no HA/pyscript
     built-ins are called here, so this whole function can safely run off the
