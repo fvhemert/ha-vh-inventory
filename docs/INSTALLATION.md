@@ -238,7 +238,7 @@ routine adds any missing columns on future upgrades (self-healing schema).
    - `sensor.vh_inventory_products`
    - `sensor.vh_inventory_stock`
    - `sensor.vh_inventory_shopping`
-   - `sensor.vh_inventory_scanqueue`
+   - `sensor.vh_inventory_scan_queue`
    - `sensor.vh_inventory_history`
    - `sensor.vh_inventory_locations`
    - `sensor.vh_inventory_categories`
@@ -407,6 +407,7 @@ package YAML.)*
 |---|---|
 | `save: False` from the builder | Bad `TOKEN`/`HOST`, or WebSocket blocked. Re-issue the token. |
 | Sensors missing | pyscript app not in `/config/pyscript/apps/vh_inventory/__init__.py`, or `pyscript.reload` not run. |
+| Sensors missing only after editing the backend, with `TypeError: pyscript functions can't be called from task.executor` in the logs | Any function passed to `task.executor(...)` must be decorated `@pyscript_compile` and must only call other native (`@pyscript_compile`) functions — see the comments around `_gather_publish_data()`/`_gather_select_maps()` in `__init__.py`. If **Settings → System → Logs** or `/api/error_log` doesn't show it, send the websocket command `{"type": "system_log/list"}` to get full tracebacks (HA de-dupes repeating errors by `count`/`first_occurred`). |
 | `ImportError: requests` in logs | `allow_all_imports: true` missing from the pyscript config. |
 | Tabs/tables don't render | A custom card resource isn't installed/registered (check Settings → Dashboards → Resources). |
 | Language switch does nothing | Hard-refresh the browser (Ctrl+R); confirm `input_select.vh_language` exists. |
