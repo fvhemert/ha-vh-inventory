@@ -952,8 +952,11 @@ def _scn_cell(entity):
            " ::-webkit-scrollbar { display: none !important; width: 0 !important;"
            " height: 0 !important; }")
     row_cm = {"style": {".": css, "hui-generic-entity-row$": css}}
+    # No "icon" override here: the state-badge (which renders it) is hidden via CSS
+    # above, so any icon value is purely cosmetic. "mdi:blank" is not a real MDI
+    # glyph and triggered a Spook "unknown icon" warning - omit it entirely.
     return {"type": "entities", "card_mod": FLAT_ENT_CM,
-      "entities": [{"entity": entity, "name": "", "icon": "mdi:blank", "card_mod": row_cm}]}
+      "entities": [{"entity": entity, "name": "", "card_mod": row_cm}]}
 
 def _scn_empty():
     # Placeholder for a cell whose device does not expose that entity - keeps the
