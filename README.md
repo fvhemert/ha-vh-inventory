@@ -61,6 +61,23 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
 
 ## Documentation
 
+- **[Database reference](docs/PRODUCT-MANUAL.md#11-data-model-reference)**: all eight
+  application tables, all columns, declared foreign keys, logical barcode/history
+  references, SQLite's internal sequence table, and an embedded diagram.
+  [SVG](docs/diagrams/database-schema.svg) |
+  [PNG](docs/diagrams/database-schema.png) |
+  [Editable Excalidraw](docs/diagrams/database-schema.excalidraw).
+- **[Keuken Touchscreen](docs/TOUCHSCREEN.md)**: a
+  separate 1920 x 1080 scan dashboard with USB/Bluetooth keyboard-scanner input,
+  Toevoegen/Gebruiken controls, read-only Opzoeken, and editable product details with
+  an explicit Save button, available at
+  `/keuken-touchscreen/scan`. Fixed bottom **Scannen** / **Boodschappenlijst** / **Voorraad** buttons
+  replace the separate tab strip. The shopping page at
+  `/keuken-touchscreen/scan#shopping` shows the live shopping list with quantity
+  controls and confirmed item removal. The inventory page at
+  `/keuken-touchscreen/scan#inventory` shows positive stock per location with
+  name/barcode search, category filtering, full stock editing and printing.
+  An offline preview is also included.
 - 📦 **[Installation Guide](docs/INSTALLATION.md)** — install on a fresh Home Assistant
   server: pyscript backend, custom Lovelace cards, configuration package, database, and
   the dashboard builder.
@@ -88,6 +105,8 @@ copying each folder to the matching location under `/config`:
 | `themes/vh_inventory.yaml` | `/config/themes/vh_inventory.yaml` | Optional dashboard theme |
 | `translations/*.json` | (next to `mk_dash.py`) | Build-time inputs for the multi-language layer |
 | `mk_dash.py` | your workstation | Builds and publishes the Lovelace dashboard over WebSocket |
+| `build_touchscreen.py` | your workstation | Generates the optional touchscreen configuration and synthetic offline preview; never deploys |
+| `www/` | `/config/www/` (optional) | Dedicated touchscreen JavaScript module and logo; see the touchscreen installation guide |
 | `configuration.example.yaml` | merge into `/config/configuration.yaml` | The only additions your root config needs (see below) |
 
 Two optional folders hold the **Large screen barcode scanners** (ESPHome) — they are *not*

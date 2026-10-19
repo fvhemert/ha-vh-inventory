@@ -58,6 +58,34 @@ The tabs, left to right:
 | **History** | Audit log of all changes (latest 50 shown). |
 | **Setup** | App settings: language selector, *Show ID columns* / *Hide header (kiosk)* toggles, and the *Handheld scanner*, *Similarity checking*, *Alternative in stock*, *Spoken announcements (TTS)* and *Mobile notifications* sections. |
 
+### Keuken Touchscreen
+
+The optional **Keuken Touchscreen** dashboard is separate from the tabbed dashboard.
+Open `/keuken-touchscreen/scan` on a 1920 x 1080 landscape screen. Its three
+equal-height bottom buttons stay fixed while the page content scrolls.
+
+| Page | What you can do |
+|---|---|
+| **Scannen** | Scan with a USB/Bluetooth keyboard scanner. **Opzoeken** is the read-only default; choose **Toevoegen** or **Gebruiken** explicitly to change stock. Existing products also support explicit-save detail editing. |
+| **Boodschappenlijst** | View catalogue and ad-hoc items, adjust quantities and confirm removal. Opens directly at `/keuken-touchscreen/scan#shopping`. |
+| **Voorraad** | View stock of at least one per location. Search by name/barcode, filter by category, edit category/store/location, adjust quantities, add/edit/remove stock, or request a full inventory print. Opens directly at `/keuken-touchscreen/scan#inventory`. |
+
+In **Voorraad bewerken**, Product is free text for renaming the same catalogue
+record, not a selector for another product. The field rows are Barcode/Product,
+Fabrikant/Winkel, Categorie/Eenheid, and Locatie/Aantal. **Opslaan** saves the draft;
+**Afbreken** discards it. Product fields apply everywhere that product appears;
+location and quantity apply only to the selected stock row. IDs and existing
+database links remain unchanged.
+
+Inline dropdowns and quantity buttons save immediately. The full editor saves
+only when you press Opslaan. Refresh buttons appear only for errors/recovery.
+An uncertain write is never retried automatically; refresh and check the real
+stock/shopping list before trying again.
+
+For setup, scanner behavior, editing safeguards and known limitations, see
+the [Keuken Touchscreen guide](TOUCHSCREEN.md). The main dashboard and scanner
+modes are not replaced or changed by opening this dashboard.
+
 ---
 
 ## 3. Setting up your reference data
@@ -612,16 +640,166 @@ that do not share words (e.g. different product names entirely).
 
 ## 11. Data model (reference)
 
-| Table | Key columns |
-|---|---|
-| `products` | name, barcode, manufacturer, unit, auto_add_enabled, auto_add_threshold, auto_add_quantity, category_id → categories, store_id → stores |
-| `stock` | product_id → products, location_id → locations, quantity |
-| `shopping_list` | product_id → products, quantity |
-| `locations` | location (unique) |
-| `categories` | category (unique) |
-| `stores` | store (unique) |
-| `scan_queue` | barcode, action (Add/Use), state (New/Lookup/Unknown/Manual/Exist), name, manufacturer, description, unit, category, image_url, provider |
-| `history` | timestamp, action, entity, entity_id, detail |
+Workstreams: general
 
-Each table is published to a matching `sensor.vh_inventory_*` entity that the dashboard
-reads.
+This reference describes the repository's current schema for administrators and
+contributors. It contains definitions only, not household data. The source of
+truth is `DB_SCHEMA` and `_ensure_schema()` in
+[`pyscript/apps/vh_inventory/__init__.py`](../pyscript/apps/vh_inventory/__init__.py).
+Existing migrated databases can retain older constraints; this is not a live
+database inspection.
+
+### Database diagram
+
+![Database tables and relationships](diagrams/database-schema.png)
+
+[Zoomable SVG](diagrams/database-schema.svg) |
+[Editable Excalidraw source](diagrams/database-schema.excalidraw)
+
+### Table overview
+
+| Table | Purpose | Published sensor |
+|---|---|---|
+| `categories` | Product category reference list. | `sensor.vh_inventory_categories` |
+| `stores` | Product store reference list. | `sensor.vh_inventory_stores` |
+| `locations` | Stock storage-location reference list. | `sensor.vh_inventory_locations` |
+| `products` | Shared catalogue, barcode and automatic-shopping settings. | `sensor.vh_inventory_products` |
+| `stock` | Quantity of one product at one location. | `sensor.vh_inventory_stock` |
+| `shopping_list` | Catalogue-linked items or standalone ad-hoc items to buy. | `sensor.vh_inventory_shopping` |
+| `scan_queue` | Barcode scans and lookup/resolve metadata. | `sensor.vh_inventory_scan_queue` |
+| `history` | Audit events, including references to rows that may later be deleted. | `sensor.vh_inventory_history` |
+| `sqlite_sequence` | SQLite internal AUTOINCREMENT counters, not an application table. | Not published. |
+
+The eight application tables contain 43 columns. All application `id` columns
+are `INTEGER PRIMARY KEY AUTOINCREMENT`. Other columns allow NULL unless marked
+`NOT NULL` below or conditionally required by the shopping-list triggers.
+
+### categories
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. |
+| `category` | TEXT | NOT NULL, UNIQUE. |
+
+### stores
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. |
+| `store` | TEXT | NOT NULL, UNIQUE. |
+
+### locations
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. |
+| `location` | TEXT | NOT NULL, UNIQUE. |
+
+### products
+
+| Column | Type | Constraints or meaning |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. Retained when renaming. |
+| `barcode` | INTEGER | UNIQUE; may be NULL. |
+| `name` | TEXT | NOT NULL. Not database-unique; the touchscreen editor rejects duplicate names. |
+| `description` | TEXT | Optional product description. |
+| `manufacturer` | TEXT | Optional manufacturer. |
+| `unit` | TEXT | Optional unit. |
+| `auto_add_enabled` | INTEGER | NOT NULL, default 0. |
+| `auto_add_threshold` | INTEGER | NOT NULL, default 0. |
+| `auto_add_quantity` | INTEGER | NOT NULL, default 1. |
+| `category_id` | INTEGER | Nullable reference to `categories.id`. |
+| `store_id` | INTEGER | Nullable reference to `stores.id`. |
+
+### stock
+
+| Column | Type | Constraints or meaning |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. Identifies the selected inventory row. |
+| `product_id` | INTEGER | Nullable reference to `products.id` in the schema. Normal stock operations link an existing product. |
+| `location_id` | INTEGER | Nullable reference to `locations.id`; NULL means unassigned. |
+| `quantity` | INTEGER | NOT NULL, default 0. Normal inventory views show positive stock only. |
+
+A product can have stock at multiple locations. The schema does not declare a
+UNIQUE constraint on `(product_id, location_id)`; stock services handle matching
+and merging. The touchscreen full editor rejects an occupied destination instead
+of merging silently. Its inline location dropdown retains the merge behavior.
+
+### shopping_list
+
+| Column | Type | Constraints or meaning |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. Identifies the shopping row, not its product. |
+| `product_id` | INTEGER | Nullable reference to `products.id`. NULL for an ad-hoc item. |
+| `quantity` | INTEGER | Default 1. |
+| `ad_hoc_name` | TEXT | Display name for an ad-hoc item. |
+| `ad_hoc_key` | TEXT | Application-normalized ad-hoc key; unique when non-NULL. |
+
+The insert/update validation triggers require exactly one item representation:
+either `product_id` is set and both ad-hoc fields are NULL, or `product_id` is
+NULL and both ad-hoc fields contain nonblank values. The partial unique index
+`idx_shopping_adhoc_key` covers `ad_hoc_key WHERE ad_hoc_key IS NOT NULL`.
+
+### scan_queue
+
+| Column | Type | Constraints or meaning |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. |
+| `barcode` | TEXT | Matched to catalogue barcodes by application logic, not a foreign key. |
+| `action` | TEXT | CHECK: `Add` or `Use`. |
+| `state` | TEXT | CHECK: `New`, `Lookup`, `Unknown`, `Manual` or `Exist`. |
+| `name` | TEXT | Lookup result or manually supplied name. |
+| `manufacturer` | TEXT | Lookup metadata. |
+| `description` | TEXT | Lookup metadata. |
+| `unit` | TEXT | Lookup metadata. |
+| `category` | TEXT | Lookup category text, not `categories.id`. |
+| `image_url` | TEXT | Lookup image URL. |
+| `provider` | TEXT | Lookup provider. |
+
+The queue has no `product_id` column and no declared foreign keys.
+
+### history
+
+| Column | Type | Constraints or meaning |
+|---|---|---|
+| `id` | INTEGER | Primary key, AUTOINCREMENT. |
+| `timestamp` | TEXT | Event timestamp. |
+| `action` | TEXT | Recorded action. |
+| `entity` | TEXT | Entity type associated with the event. |
+| `entity_id` | INTEGER | Logical entity reference; not a foreign key. |
+| `detail` | TEXT | Event details. |
+
+`entity` and `entity_id` describe different entity types. History can remain after
+the referenced row is deleted, so there is no single-table SQL foreign key.
+
+### SQLite internal storage
+
+`sqlite_sequence` contains `name` and `seq`, maintained by SQLite for
+AUTOINCREMENT tables. It has no declared foreign keys. Do not edit it as
+inventory data.
+
+### Relationships and update boundaries
+
+| Child column | Parent column | Relationship |
+|---|---|---|
+| `products.category_id` | `categories.id` | Many products to zero or one category. |
+| `products.store_id` | `stores.id` | Many products to zero or one store. |
+| `stock.product_id` | `products.id` | Many stock rows to zero or one product in the declared schema. |
+| `stock.location_id` | `locations.id` | Many stock rows to zero or one location. |
+| `shopping_list.product_id` | `products.id` | Many shopping rows to zero or one product; ad-hoc rows have no product link. |
+
+These are five declared `REFERENCES` relationships. `_conn()` currently does not
+enable SQLite `PRAGMA foreign_keys`; do not assume the declarations provide
+runtime enforcement or cascading cleanup. Application services validate and
+maintain their supported links. Adding or changing enforcement is a separate
+behavioral/database change, not part of the touchscreen addition.
+
+The ID-based touchscreen editor updates product metadata in `products` and
+location/quantity in the selected `stock` row. It does not replace the product,
+write `stock.product_id`, create tables or alter the schema. Product, selected
+stock and history writes share one transaction. Shopping reconciliation and
+sensor publication follow the commit and are not part of that transaction.
+
+Use the supported services rather than editing a live SQLite file over a
+network share. See [backup and restore](INSTALLATION.md#12-backup--restore)
+before any data repair or migration.

@@ -816,6 +816,7 @@ def _insert_id(sql, params):
         conn.close()
 
 
+@pyscript_compile
 def _months_ago(months):
     """Return the datetime `months` calendar months before now (day-clamped so
     e.g. 3 months before 31 May yields the last valid day of February)."""
@@ -830,6 +831,7 @@ def _months_ago(months):
     return now.replace(year=year, month=month, day=min(now.day, last_day))
 
 
+@pyscript_compile
 def _purge_history(conn):
     """Delete history rows older than the retention window (no commit). Safe on
     string timestamps because '%Y-%m-%d %H:%M:%S' sorts chronologically."""
@@ -837,6 +839,7 @@ def _purge_history(conn):
     conn.execute("DELETE FROM history WHERE timestamp < ?", [cutoff])
 
 
+@pyscript_compile
 def _hist_row(conn, action, entity, entity_id, detail):
     """Insert a history row on an existing connection (no commit/publish)."""
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2408,6 +2411,176 @@ def vh_inventory_edit_load(table=None, id=None):
 
 
 # ---------- UPDATE ----------
+@pyscript_compile
+def _save_product_details(id, changes, expected):
+    """Patch only edited fields and optionally relocate all stock, atomically."""
+    fields = {"manufacturer", "unit", "category_id", "store_id", "location_id"}
+    if (isinstance(id, bool) or not isinstance(id, (int, str))
+            or not str(id).isdigit() or int(id) < 1):
+        raise ValueError("A valid product id is required")
+    if (not isinstance(changes, dict) or not changes
+            or not set(changes) <= fields
+            or not isinstance(expected, dict) or set(expected) != set(changes)):
+        raise ValueError("Provide supported edited fields and their original values")
+    references = {"category_id": "categories", "store_id": "stores",
+                  "location_id": "locations"}
+    for field, value in changes.items():
+        if field in ("manufacturer", "unit"):
+            if not isinstance(value, str) or len(value) > 255:
+                raise ValueError("Product text must be at most 255 characters")
+        elif value is not None and (type(value) is not int or value < 1):
+            raise ValueError("Select an existing reference or leave it unassigned")
+        if field == "location_id":
+            if (not isinstance(expected[field], list)
+                    or any(not isinstance(v, str) for v in expected[field])):
+                raise ValueError("Original stock locations are required")
+        elif field in ("manufacturer", "unit"):
+            if not isinstance(expected[field], str):
+                raise ValueError("Original product text is required")
+        elif expected[field] is not None and type(expected[field]) is not int:
+            raise ValueError("Original reference ids are required")
+
+    pid = int(id)
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT manufacturer,unit,category_id,store_id FROM products WHERE id=?",
+            [pid]).fetchone()
+        if row is None:
+            raise ValueError("Product no longer exists")
+        current = dict(zip(("manufacturer", "unit", "category_id", "store_id"), row))
+        inventory = []
+        for field, value in changes.items():
+            if field == "location_id":
+                inventory = conn.execute(
+                    "SELECT id,location_id,quantity FROM stock WHERE product_id=? ORDER BY id",
+                    [pid]).fetchall()
+                if not inventory or sum(r[2] or 0 for r in inventory) <= 0:
+                    raise ValueError("Cannot set a stock location without existing stock")
+                locations = sorted({str(r[1]) if r[1] is not None else ""
+                                    for r in inventory})
+                if locations != expected[field]:
+                    raise ValueError("Stock locations changed; discard edits and look up again")
+            elif (current[field] or "" if field in ("manufacturer", "unit")
+                  else current[field]) != expected[field]:
+                raise ValueError("Product details changed; discard edits and look up again")
+            if field in references and value is not None:
+                if conn.execute("SELECT id FROM %s WHERE id=?" % references[field],
+                                [value]).fetchone() is None:
+                    raise ValueError("Selected reference no longer exists")
+        for field, value in changes.items():
+            if field != "location_id":
+                conn.execute("UPDATE products SET %s=? WHERE id=?" % field, [value, pid])
+        if "location_id" in changes:
+            destination = changes["location_id"]
+            keeper = next((r[0] for r in inventory if r[1] == destination), inventory[0][0])
+            quantity = sum(r[2] or 0 for r in inventory)
+            conn.execute("UPDATE stock SET location_id=?,quantity=? WHERE id=?",
+                         [destination, quantity, keeper])
+            conn.execute("DELETE FROM stock WHERE product_id=? AND id<>?", [pid, keeper])
+        _hist_row(conn, "update", "products", pid,
+                  "Updated touchscreen fields: %s" % ", ".join(sorted(changes)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@service
+def vh_inventory_save_product_details(id=None, changes=None, expected=None):
+    """Save explicitly edited product details without changing stock totals or shopping."""
+    task.executor(_save_product_details, id, changes, expected)
+    _publish()
+
+
+@pyscript_compile
+def _save_stock_details(id, product_id, changes, expected):
+    """Patch product and selected stock fields without changing their IDs or links."""
+    product_fields = ("name", "barcode", "manufacturer", "unit", "category_id", "store_id")
+    stock_fields = ("location_id", "quantity")
+    fields = set(product_fields + stock_fields)
+    for identifier in (id, product_id):
+        if (isinstance(identifier, bool) or not isinstance(identifier, (int, str))
+                or not str(identifier).isdigit() or int(identifier) < 1):
+            raise ValueError("Valid stock and product ids are required")
+    if (not isinstance(changes, dict) or not changes or not set(changes) <= fields
+            or not isinstance(expected, dict)
+            or set(expected) != set(changes) | set(stock_fields)):
+        raise ValueError("Provide supported edited fields and original values")
+    references = {"category_id": "categories", "store_id": "stores", "location_id": "locations"}
+    for field, value in changes.items():
+        if field in ("name", "manufacturer", "unit"):
+            if not isinstance(value, str) or len(value) > 255:
+                raise ValueError("Product text must be at most 255 characters")
+            if field == "name" and (not value.strip() or value.strip() == NONE):
+                raise ValueError("A product name is required")
+        elif field == "quantity":
+            if type(value) is not int or not 0 <= value <= 99999:
+                raise ValueError("Quantity must be a whole number from 0 to 99999")
+        elif field == "barcode":
+            if value is not None and (type(value) is not int or not 0 <= value < 10**15):
+                raise ValueError("Barcode must be empty or up to 15 digits")
+        elif value is not None and (type(value) is not int or value < 1):
+            raise ValueError("Select an existing reference or leave it unassigned")
+    for field, value in expected.items():
+        if field in ("name", "manufacturer", "unit"):
+            if not isinstance(value, str):
+                raise ValueError("Original product text is required")
+        elif value is not None and type(value) is not int:
+            raise ValueError("Original numeric values are required")
+
+    rid, pid = int(id), int(product_id)
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        stock = conn.execute("SELECT product_id,location_id,quantity FROM stock WHERE id=?", [rid]).fetchone()
+        if stock is None or stock[0] != pid or stock[2] < 1:
+            raise ValueError("Stock row or linked product changed")
+        product = conn.execute(
+            "SELECT name,barcode,manufacturer,unit,category_id,store_id FROM products WHERE id=?", [pid]).fetchone()
+        if product is None:
+            raise ValueError("Product no longer exists")
+        current = dict(zip(product_fields, product))
+        current.update(location_id=stock[1], quantity=stock[2])
+        for field, value in expected.items():
+            actual = current[field] or "" if field in ("manufacturer", "unit") else current[field]
+            if actual != value:
+                raise ValueError("Details changed; discard edits and refresh")
+        for field, table in references.items():
+            if field in changes and changes[field] is not None:
+                if conn.execute("SELECT id FROM %s WHERE id=?" % table, [changes[field]]).fetchone() is None:
+                    raise ValueError("Selected reference no longer exists")
+        if "name" in changes and conn.execute(
+                "SELECT id FROM products WHERE name=? AND id<>?", [changes["name"], pid]).fetchone():
+            raise ValueError("Product name already belongs to another product")
+        if "barcode" in changes and changes["barcode"] is not None and conn.execute(
+                "SELECT id FROM products WHERE barcode=? AND id<>?", [changes["barcode"], pid]).fetchone():
+            raise ValueError("Barcode already belongs to another product")
+        destination = changes.get("location_id", stock[1])
+        if conn.execute(
+                "SELECT id FROM stock WHERE product_id=? AND id<>? "
+                "AND IFNULL(location_id,-1)=IFNULL(?,-1)", [pid, rid, destination]).fetchone():
+            raise ValueError("Use the location dropdown to merge existing stock")
+        before_total = conn.execute(
+            "SELECT COALESCE(SUM(quantity),0) FROM stock WHERE product_id=?", [pid]).fetchone()[0]
+        for field, value in changes.items():
+            table, target = ("products", pid) if field in product_fields else ("stock", rid)
+            conn.execute("UPDATE %s SET %s=? WHERE id=?" % (table, field), [value, target])
+        _hist_row(conn, "update", "stock", rid, "Updated touchscreen fields: %s" % ", ".join(sorted(changes)))
+        conn.commit()
+        return before_total, before_total - stock[2] + changes.get("quantity", stock[2])
+    finally:
+        conn.close()
+
+
+@service
+def vh_inventory_save_stock_details(id=None, product_id=None, changes=None, expected=None):
+    """Save the linked product and selected stock row by their existing IDs."""
+    before, after = task.executor(_save_stock_details, id, product_id, changes, expected)
+    _reconcile_shopping({int(product_id): before}, {int(product_id): after})
+    _publish()
+
+
 @service
 def vh_inventory_update_product(id=None, barcode=None, name=None, description=None,
                                 manufacturer=None, unit=None, auto_add_enabled=0,
