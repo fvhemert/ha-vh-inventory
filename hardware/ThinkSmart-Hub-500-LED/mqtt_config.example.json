@@ -1,0 +1,8 @@
+{
+  "host": "192.0.2.10",
+  "port": 1883,
+  "username": "thinksmart-led-example",
+  "password": "REPLACE_WITH_MQTT_PASSWORD",
+  "base_topic": "thinksmart/keuken/led",
+  "discovery_prefix": "homeassistant"
+}

@@ -2,6 +2,12 @@
 
 Workstreams: general
 
+**ThinkSmart Hub 500 LED ring:** optional native Windows scripts control the
+device's physical ring and expose green/red/white/off through Home Assistant MQTT
+discovery. See the [LED setup and Word guide](../hardware/ThinkSmart-Hub-500-LED/README.md).
+This is separate from the kitchen Ledstrip controls and does not add dashboard
+buttons or inventory automations.
+
 This dashboard is for a separate 1920 x 1080 landscape touchscreen running Home
 Assistant in a browser. Page one handles barcode scanning with a USB or Bluetooth
 scanner that acts as a keyboard. It is separate from the existing `/vh-inventory`

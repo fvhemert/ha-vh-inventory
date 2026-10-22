@@ -61,6 +61,11 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
 
 ## Documentation
 
+- **[ThinkSmart Hub 500 LED ring](hardware/ThinkSmart-Hub-500-LED/README.md)**:
+  optional Windows control of the Keuken TS device's physical LED ring, with
+  green/red/white/off presets and Home Assistant MQTT discovery. Includes the
+  scripts, libusb DLL with license/source, and the
+  [Word installation guide](hardware/ThinkSmart-Hub-500-LED/ThinkSmart_Hub_500_LED_Installation_Guide.docx).
 - **[Database reference](docs/PRODUCT-MANUAL.md#11-data-model-reference)**: all eight
   application tables, all columns, declared foreign keys, logical barcode/history
   references, SQLite's internal sequence table, and an embedded diagram.

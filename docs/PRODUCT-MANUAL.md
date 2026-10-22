@@ -7,6 +7,13 @@ multi-language (English / Nederlands out of the box).
 
 > **Audience:** end users of the dashboard. For installation, see `INSTALLATION.md`.
 
+**Optional ThinkSmart LED ring:** the Keuken TS ThinkSmart Hub 500 can expose its
+physical ring as a Home Assistant MQTT select, with green, red, white and off
+options. The separate Windows bridge and
+[installation guide](../hardware/ThinkSmart-Hub-500-LED/README.md) live under
+`hardware/ThinkSmart-Hub-500-LED`. It does not automatically tie ring colors to
+scans or stock changes; any such automation must be configured separately.
+
 ---
 
 ## 1. Core concepts

@@ -8,6 +8,15 @@ SQLite database, and the dashboard builder.
 > **Audience:** a Home Assistant administrator with file-system access to `/config`.
 > **Time required:** ~30–45 minutes on a clean install.
 
+**Optional ThinkSmart LED ring:** for a Lenovo ThinkSmart Hub 500 running Keuken TS,
+install the separate Windows USB/MQTT bridge using the
+[LED installation instructions](../hardware/ThinkSmart-Hub-500-LED/README.md).
+The directory includes the scripts, x64 libusb DLL, license/source and
+[Word guide](../hardware/ThinkSmart-Hub-500-LED/ThinkSmart_Hub_500_LED_Installation_Guide.docx).
+Install it on the physical ThinkSmart, not in Home Assistant; it requires Python
+3.13 x64 and UsbDk. Keep the real MQTT config local and preserve the normal composite
+USB driver. This addition does not change the inventory backend or database.
+
 ---
 
 ## 1. Architecture overview
