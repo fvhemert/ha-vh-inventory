@@ -2,6 +2,7 @@ import sqlite3
 import datetime
 import json
 import time
+import re
 import unicodedata
 from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
@@ -145,6 +146,7 @@ DB_SCHEMA = {
         ("auto_add_quantity", "INTEGER NOT NULL DEFAULT 1"),
         ("category_id", "INTEGER REFERENCES categories(id)"),
         ("store_id", "INTEGER REFERENCES stores(id)"),
+        ("almost_out", "INTEGER NOT NULL DEFAULT 0 CHECK(almost_out IN (0,1))"),
     ],
     "stock": [
         ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
@@ -232,6 +234,23 @@ def _backup_db_before_adhoc_migration(conn):
     log.info("vh_inventory: pre-Ad-Hoc database backup created at %s" % backup_path)
 
 
+def _backup_db_before_almost_out_migration(conn):
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "products" not in tables or "almost_out" in {
+            row[1] for row in conn.execute("PRAGMA table_info(products)")}:
+        return
+    path = DB_PATH + ".pre-almost-out-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = sqlite3.connect(path)
+    try:
+        conn.backup(backup)
+    except Exception:
+        log.error("vh_inventory: Almost-out migration backup failed; migration aborted")
+        raise
+    finally:
+        backup.close()
+    log.info("vh_inventory: pre-Almost-out database backup created at %s" % path)
+
+
 def _ensure_schema():
     """Idempotently build the whole database. Creates missing tables (fresh
     install) and adds any missing columns to existing tables (migrations).
@@ -251,6 +270,7 @@ def _ensure_schema():
                 log.info("vh_inventory: renamed table %s -> %s" % (old, new))
         conn.commit()
         _backup_db_before_adhoc_migration(conn)
+        _backup_db_before_almost_out_migration(conn)
         for table in DB_SCHEMA_ORDER:
             cols = DB_SCHEMA[table]
             parts = ["%s %s" % (n, d) for (n, d) in cols]
@@ -265,6 +285,8 @@ def _ensure_schema():
                         conn.execute(
                             "ALTER TABLE %s ADD COLUMN %s %s" % (table, n, d))
                     except Exception as e:
+                        if table == "products" and n == "almost_out":
+                            raise
                         log.warning(
                             "vh_inventory schema: cannot add %s.%s (%s)"
                             % (table, n, e))
@@ -387,7 +409,7 @@ def _load_products():
     cat_id, _, store_id, _ = _name_maps()
     cols = ["id", "barcode", "name", "description", "manufacturer", "unit",
             "auto_add_enabled", "auto_add_threshold", "auto_add_quantity",
-            "category_id", "store_id"]
+            "category_id", "store_id", "almost_out"]
     conn = _conn()
     try:
         rows = conn.execute(
@@ -441,6 +463,7 @@ def _product_totals():
     return {pid: tot for pid, tot in rows}
 
 
+@pyscript_compile
 def _purge_zero_stock_rows(conn, pids):
     """Enforce the 'no zero-stock products in the inventory' rule: for every
     product in pids whose total stock quantity is 0, delete its stock rows so
@@ -490,7 +513,20 @@ def _alt_stock_threshold():
     return ALT_STOCK_THRESHOLD
 
 
-def _find_instock_alternative(conn, pid, pname):
+def _touchscreen_variant_conflict(scanned, candidate):
+    """Veto explicit fat-type conflicts; semantic matching still decides equivalence."""
+    variants = []
+    for name in (scanned, candidate):
+        labels = set()
+        for token in re.findall(r"\b(?:half[\s-]*vol(?:le)?|mager(?:e)?|vol(?:le)?)\b", name.lower()):
+            compact = re.sub(r"[\s-]", "", token)
+            labels.add("halfvol" if compact.startswith("half") else
+                       "mager" if compact.startswith("mager") else "vol")
+        variants.append(labels)
+    return bool(variants[0] and variants[1] and variants[0].isdisjoint(variants[1]))
+
+
+def _find_instock_alternative(conn, pid, pname, excluded_names=(), strict_variants=False):
     """Return (name, total_qty, meta) of an IN-STOCK product (total quantity > 0,
     different product_id) judged to be the SAME product as `pname`, or None. Used
     when the last unit of a product is consumed to offer an equivalent already on
@@ -510,7 +546,8 @@ def _find_instock_alternative(conn, pid, pname):
     qty_by_name = {}
     for r in rows:
         oname = (r[0] or "").strip()
-        if not oname:
+        if not oname or oname.lower() in excluded_names or (
+                strict_variants and _touchscreen_variant_conflict(pname, oname)):
             continue
         names.append(oname)
         qty_by_name[oname.lower()] = int(r[1] or 0)
@@ -539,6 +576,41 @@ def _find_instock_alternative(conn, pid, pname):
         return None
     meta = {"method": method, "confidence": confidence, "elapsed_ms": elapsed_ms}
     return (best_name, qty_by_name.get(best_name.lower(), 0), meta)
+
+
+def _find_instock_alternatives(conn, pid, pname):
+    """Get all touchscreen equivalents with at most one semantic request."""
+    rows = conn.execute(
+        "SELECT p.id,p.name,COALESCE(SUM(s.quantity),0) FROM products p "
+        "JOIN stock s ON s.product_id=p.id WHERE p.id!=? "
+        "GROUP BY p.id HAVING COALESCE(SUM(s.quantity),0)>0 ORDER BY p.id", [pid]).fetchall()
+    names = [(name or "").strip() for product_id, name, quantity in rows
+             if (name or "").strip() and not _touchscreen_variant_conflict(pname, name)]
+    if not (pname or "").strip() or not names:
+        return []
+    matches = {}
+    method, elapsed_ms = None, None
+    if _ai_match_enabled():
+        accepted, confidence, elapsed_ms, ok = _ai_same_product(pname, names, multiple=True)
+        method = "AI" if ok else "AI-fallback"
+        if ok:
+            for name in accepted:
+                matches[name.lower()] = confidence
+    if method is None or method == "AI-fallback":
+        threshold = _alt_stock_threshold()
+        for name in names:
+            score = _name_similarity(pname, name)
+            if score >= threshold:
+                matches[name.lower()] = score
+        if method is None:
+            method = "string"
+    alternatives = []
+    for product_id, name, quantity in rows:
+        confidence = matches.get((name or "").strip().lower())
+        if confidence is not None and not _touchscreen_variant_conflict(pname, name):
+            alternatives.append(dict(product_id=product_id, product=name, quantity=quantity,
+                                     method=method, confidence=confidence, elapsed_ms=elapsed_ms))
+    return alternatives
 
 
 def _resolve_popup_device(device):
@@ -656,7 +728,8 @@ def _raise_alt_stock_popup(pid, pname, alt_name, alt_qty, device=None):
     switch.turn_on(entity_id="switch.%s_popup" % dev)
 
 
-def _reconcile_shopping(before, after, device=None):
+def _reconcile_shopping(before, after, device=None, announce=True, deferred_alternatives=None,
+                        check_alternatives=True):
     """Reconcile the shopping list against an inventory change.
     before/after are {product_id: total}. For each product whose total:
       - increased (a > b): remove it from the shopping list, and
@@ -693,29 +766,45 @@ def _reconcile_shopping(before, after, device=None):
                 enabled, threshold, add_qty = info
                 if enabled and threshold and a < threshold and pid not in on_list:
                     alt, pname = None, ""
-                    if _alt_stock_enabled():
+                    if check_alternatives and _alt_stock_enabled():
                         prow = conn.execute(
                             "SELECT name FROM products WHERE id=?", [pid]).fetchone()
                         pname = (prow[0] if prow else "") or ""
-                        alt = _find_instock_alternative(conn, pid, pname)
+                        if deferred_alternatives is None:
+                            alt = _find_instock_alternative(conn, pid, pname)
+                        else:
+                            alternatives = _find_instock_alternatives(conn, pid, pname)
+                            if alternatives:
+                                first = alternatives[0]
+                                alt = (first["product"], first["quantity"], first)
                     if alt:
                         # Stock dropped below the auto-add threshold but a similar
                         # product is in stock: do NOT auto-add. Raise the
                         # interactive popup asking the user whether to add it
                         # anyway, and announce (TTS) the in-stock alternative.
                         alt_name, alt_qty, alt_meta = alt
-                        _hist_row(conn, "alt-in-stock", "shopping_list", pid,
+                        detail = (
                                   "Use-scan '%s' below auto-add threshold (%d); "
-                                  "'%s' (stock %d) in stock -> popup asking "
+                                  "'%s' (stock %d) in stock -> %s asking "
                                   "whether to add to shopping list [%s]"
                                   % (pname, threshold, alt_name, alt_qty,
+                                     "popup" if deferred_alternatives is None else "touchscreen choice",
                                      _match_meta_str(alt_meta.get("method"),
                                                      alt_meta.get("confidence"),
                                                      alt_meta.get("elapsed_ms"))))
+                        if deferred_alternatives is not None:
+                            detail += "; equivalents: " + "; ".join([
+                                "%s [%s]" % (row["product"], _match_meta_str(
+                                    row["method"], row["confidence"], row["elapsed_ms"]))
+                                for row in alternatives])
+                        _hist_row(conn, "alt-in-stock", "shopping_list", pid, detail)
                         changed = True
-                        _announce_alt_stock(pname, alt_name, alt_qty)
-                        _raise_alt_stock_popup(
-                            pid, pname, alt_name, alt_qty, device)
+                        if deferred_alternatives is None:
+                            _announce_alt_stock(pname, alt_name, alt_qty)
+                            _raise_alt_stock_popup(
+                                pid, pname, alt_name, alt_qty, device)
+                        else:
+                            deferred_alternatives.extend(alternatives)
                     else:
                         conn.execute(
                             "INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
@@ -725,7 +814,7 @@ def _reconcile_shopping(before, after, device=None):
                                   "Auto-added product_id=%d qty=%d (stock %d < %d)"
                                   % (pid, int(add_qty or 1), a, threshold))
                         changed = True
-                        _announce_shopping_add(pid)
+                        _announce_shopping_add(pid, suppress_tts=not announce)
         # Enforce the no-zero-stock rule for the products touched by this change.
         # Runs after the shopping-list logic (which used the pre-purge totals),
         # so auto-add on reaching 0 stays intact.
@@ -867,7 +956,7 @@ def _log_history(action, entity, entity_id=None, detail=None, publish=True):
         _publish()
 
 
-def _announce_shopping_add(pid):
+def _announce_shopping_add(pid, suppress_tts=False):
     """Fire a fire-and-forget event announcing that a product was added to the
     shopping list. A separate HA automation (vh_inventory_announce) does the
     slow chime-tts work, so TTS runs fully independently of the inventory logic.
@@ -876,7 +965,10 @@ def _announce_shopping_add(pid):
     try:
         name, _ = _product_name_mfr(pid)
         if name:
-            event.fire("vh_inventory_announce", kind="shopping_add", product=name)
+            data = {"kind": "shopping_add", "product": name}
+            if suppress_tts:
+                data["suppress_tts"] = True
+            event.fire("vh_inventory_announce", **data)
     except Exception:
         pass
 
@@ -1021,6 +1113,90 @@ def vh_inventory_refresh():
 
 
 # ---------- ADD ----------
+@pyscript_compile
+def _create_touchscreen_product(barcode, mode, details, scan_id=None):
+    """Register an unknown barcode and complete at most its selected Add scan."""
+    fields = {"name", "description", "manufacturer", "unit", "category_id",
+              "store_id", "location_id", "auto_add_enabled",
+              "auto_add_threshold", "auto_add_quantity"}
+    if (not isinstance(barcode, str) or not barcode.isascii()
+            or not barcode.isdigit() or not 1 <= len(barcode) <= 15
+            or mode not in ("Lookup", "Add")):
+        raise ValueError("Invalid registration barcode or mode.")
+    if not isinstance(details, dict) or set(details) != fields:
+        raise ValueError("Provide all supported product details.")
+    for field in ("name", "description", "manufacturer", "unit"):
+        if not isinstance(details[field], str) or len(details[field]) > 255:
+            raise ValueError("Product text must be at most 255 characters.")
+    name = details["name"].strip()
+    if not name or name == NONE:
+        raise ValueError("A product name is required.")
+    for field, minimum, maximum in (("auto_add_enabled", 0, 1),
+                                    ("auto_add_threshold", 0, 999),
+                                    ("auto_add_quantity", 1, 999)):
+        if type(details[field]) is not int or not minimum <= details[field] <= maximum:
+            raise ValueError("Invalid automatic-shopping settings.")
+    references = {"category_id": "categories", "store_id": "stores", "location_id": "locations"}
+    for field in references:
+        if details[field] is not None and (type(details[field]) is not int or details[field] < 1):
+            raise ValueError("Select an existing reference or leave it unassigned.")
+    if mode == "Lookup" and (scan_id is not None or details["location_id"] is not None):
+        raise ValueError("Lookup registration cannot change stock or resolve a scan.")
+    if scan_id is not None and (type(scan_id) is not int or scan_id < 1):
+        raise ValueError("Select the unresolved Add scan.")
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT id FROM products WHERE barcode=?", [int(barcode)]).fetchone():
+            raise ValueError("Barcode already belongs to a product. Look it up again.")
+        if any(row[0].casefold() == name.casefold()
+               for row in conn.execute("SELECT name FROM products")):
+            raise ValueError("A product with this name already exists.")
+        for field, table in references.items():
+            if details[field] is not None and conn.execute(
+                    "SELECT id FROM %s WHERE id=?" % table, [details[field]]).fetchone() is None:
+                raise ValueError("Selected reference no longer exists.")
+        if mode == "Add" and scan_id is not None:
+            pending = conn.execute(
+                "SELECT barcode,action,state FROM scan_queue WHERE id=?", [scan_id]).fetchone()
+            if (pending is None or pending[1:] != ("Add", "Unknown")
+                    or (str(pending[0]).lstrip("0") or "0") != str(int(barcode))):
+                raise ValueError("The unresolved Add scan changed. Scan again.")
+        pid = conn.execute(
+            "INSERT INTO products(barcode,name,description,manufacturer,unit,"
+            "auto_add_enabled,auto_add_threshold,auto_add_quantity,category_id,store_id)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            [int(barcode), name, details["description"], details["manufacturer"], details["unit"],
+             details["auto_add_enabled"], details["auto_add_threshold"], details["auto_add_quantity"],
+             details["category_id"], details["store_id"]]).lastrowid
+        _hist_row(conn, "add", "products", pid, "Registered from touchscreen (%s)" % mode)
+        if mode == "Add":
+            sid = conn.execute(
+                "INSERT INTO stock(product_id,location_id,quantity) VALUES(?,?,1)",
+                [pid, details["location_id"]]).lastrowid
+            _hist_row(conn, "add", "stock", sid, "Completed touchscreen Add: quantity 1")
+            if scan_id is not None:
+                conn.execute("DELETE FROM scan_queue WHERE id=?", [scan_id])
+                _hist_row(conn, "delete", "scan_queue", scan_id, "Completed touchscreen Add registration")
+        conn.commit()
+        return {"product_id": pid, "quantity": 1 if mode == "Add" else 0}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@service(supports_response="only")
+def vh_inventory_touchscreen_create_product(barcode=None, mode=None, details=None, scan_id=None):
+    """Explicit registration: Lookup creates metadata only; Add also stocks one."""
+    result = task.executor(_create_touchscreen_product, barcode, mode, details, scan_id)
+    if mode == "Add":
+        _reconcile_shopping({result["product_id"]: 0}, {result["product_id"]: 1})
+    _publish()
+    return result
+
+
 @service
 def vh_inventory_add_product(barcode=None, name=None, description=None,
                              manufacturer=None, unit=None, auto_add_enabled=0,
@@ -1185,6 +1361,183 @@ def vh_inventory_scan_enqueue(barcode=None, action=None, device=None):
         return "notfound"
     _publish()
     return None
+
+
+@pyscript_compile
+def _touchscreen_stock_change(product_id, action, stock_id=None,
+                              expected_stock=None, expected_almost_out=None):
+    if type(product_id) is not int or product_id < 1 or action not in (
+            "Add", "Use", "AlmostOut", "ShoppingAdd", "ShoppingSkip"):
+        raise ValueError("Invalid touchscreen product or action.")
+    if stock_id is not None and (type(stock_id) is not int or stock_id < 1 or action != "Use"):
+        raise ValueError("Invalid touchscreen stock row.")
+    if expected_almost_out is not None and (
+            type(expected_almost_out) is not int or expected_almost_out not in (0, 1)):
+        raise ValueError("Invalid expected Almost-out state.")
+    if expected_stock is not None and (not isinstance(expected_stock, list) or any(
+            not isinstance(row, dict) or set(row) != {"id", "quantity", "location_id"} or
+            type(row["id"]) is not int or row["id"] < 1 or
+            type(row["quantity"]) is not int or row["quantity"] < 0 or
+            row["location_id"] is not None and (
+                type(row["location_id"]) is not int or row["location_id"] < 1)
+            for row in expected_stock)):
+        raise ValueError("Invalid expected stock snapshot.")
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        product = conn.execute(
+            "SELECT name,almost_out,auto_add_quantity FROM products WHERE id=?", [product_id]).fetchone()
+        if product is None:
+            raise ValueError("Touchscreen product no longer exists.")
+        name, pending, add_quantity = product
+        rows = [{"id": rid, "quantity": qty, "location_id": lid} for rid, qty, lid in conn.execute(
+            "SELECT id,quantity,location_id FROM stock WHERE product_id=? ORDER BY id", [product_id])]
+        if any(type(row["quantity"]) is not int or row["quantity"] < 0 for row in rows):
+            raise ValueError("Invalid inventory quantity.")
+        if expected_stock is not None and expected_stock != rows:
+            raise ValueError("Stock changed before the touchscreen action.")
+        if expected_almost_out is not None and expected_almost_out != pending:
+            raise ValueError("Almost-out state changed before the touchscreen action.")
+        if stock_id is not None and not any(row["id"] == stock_id and row["quantity"] > 0 for row in rows):
+            raise ValueError("Selected stock row is no longer available.")
+        before = sum(row["quantity"] for row in rows)
+        was_on_shopping = conn.execute(
+            "SELECT 1 FROM shopping_list WHERE product_id=?", [product_id]).fetchone() is not None
+        if action in ("ShoppingAdd", "ShoppingSkip"):
+            if expected_stock is None or expected_almost_out is None:
+                raise ValueError("A fresh stock snapshot is required for a shopping decision.")
+            added = action == "ShoppingAdd" and not was_on_shopping
+            if added:
+                quantity = int(add_quantity or 1)
+                if quantity < 1:
+                    raise ValueError("Invalid shopping quantity.")
+                conn.execute("INSERT INTO shopping_list(product_id,quantity) VALUES(?,?)",
+                             [product_id, quantity])
+            _hist_row(conn, "alt-add" if action == "ShoppingAdd" else "alt-keep",
+                      "shopping_list", product_id,
+                      "Touchscreen alternative-stock decision: %s; stock unchanged at %d" % (action, before))
+            conn.commit()
+            return {"outcome": "shopping_added" if action == "ShoppingAdd" else "shopping_kept",
+                    "product_id": product_id, "product": name, "quantity": before,
+                    "almost_out": pending, "stock": rows,
+                    "on_shopping": was_on_shopping or added, "shopping_added": added}
+        empty_use = False
+        if action == "AlmostOut" and pending:
+            outcome, after_pending = "already_almost_out", 1
+        elif action == "Use" and pending:
+            outcome, after_pending = "already_counted", 0
+        else:
+            candidates = rows if action == "Add" else [row for row in rows if row["quantity"] > 0]
+            selected = next((row for row in candidates if row["id"] == stock_id), None) if stock_id is not None else next(
+                (row for row in candidates if row["location_id"] is None),
+                candidates[0] if len(candidates) == 1 else None)
+            if action == "Add":
+                if selected:
+                    conn.execute("UPDATE stock SET quantity=quantity+1 WHERE id=?", [selected["id"]])
+                else:
+                    conn.execute("INSERT INTO stock(product_id,location_id,quantity) VALUES(?,NULL,1)", [product_id])
+                outcome, after_pending = "add", pending
+            else:
+                if selected is None and before > 0:
+                    raise ValueError("Multiple stock locations. Select the stock row in Quick Inventory.")
+                if selected and selected["quantity"] > 0:
+                    conn.execute("UPDATE stock SET quantity=quantity-1 WHERE id=?", [selected["id"]])
+                else:
+                    empty_use = True
+                outcome = "almost_out" if action == "AlmostOut" else "shopping" if empty_use else "use"
+                after_pending = 1 if action == "AlmostOut" else 0
+        conn.execute("UPDATE products SET almost_out=? WHERE id=?", [after_pending, product_id])
+        _purge_zero_stock_rows(conn, {product_id})
+        after_rows = [{"id": rid, "quantity": qty, "location_id": lid} for rid, qty, lid in conn.execute(
+            "SELECT id,quantity,location_id FROM stock WHERE product_id=? ORDER BY id", [product_id])]
+        quantity = sum(row["quantity"] for row in after_rows)
+        _hist_row(conn, outcome, "products", product_id,
+                  "Touchscreen %s: stock %d -> %d; almost_out %d -> %d" %
+                  (action, before, quantity, pending, after_pending))
+        conn.commit()
+        return {"outcome": outcome, "product_id": product_id, "product": name,
+                "before": before, "quantity": quantity, "almost_out": after_pending,
+                "stock": after_rows, "empty_use": empty_use, "was_on_shopping": was_on_shopping}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@service(supports_response="only")
+def vh_inventory_touchscreen_scan(barcode=None, action=None, product_id=None,
+                                 stock_id=None, expected_stock=None, expected_almost_out=None,
+                                 confirm_alternatives=False):
+    """Apply Add, Use or AlmostOut only for the kitchen touchscreen."""
+    if action not in ("Add", "Use", "AlmostOut"):
+        raise ValueError("Invalid touchscreen action.")
+    if type(confirm_alternatives) is not bool or confirm_alternatives and action != "Use":
+        raise ValueError("Alternative-stock confirmation is only supported for Use.")
+    if (barcode is None) == (product_id is None):
+        raise ValueError("Supply either a barcode or a product ID.")
+    if barcode is not None:
+        bc = str(barcode).strip()
+        if not bc.isascii() or not bc.isdigit() or not 1 <= len(bc) <= 15:
+            raise ValueError("Use 1 to 15 barcode digits.")
+        product_id = _product_id_for_barcode(bc)
+        if product_id is None:
+            if action == "AlmostOut":
+                raise ValueError("Register this product before marking it Almost out.")
+            return {"outcome": "notfound", "product_id": None}
+    result = task.executor(_touchscreen_stock_change, product_id, action, stock_id,
+                           expected_stock, expected_almost_out)
+    special = result["outcome"] in ("almost_out", "already_almost_out", "already_counted")
+    alternatives = [] if confirm_alternatives else None
+    _reconcile_shopping({product_id: result["before"]}, {product_id: result["quantity"]},
+                        announce=not special, deferred_alternatives=alternatives,
+                        check_alternatives=confirm_alternatives)
+    if result["empty_use"]:
+        if alternatives is not None and not result["was_on_shopping"] and _alt_stock_enabled():
+            conn = _conn()
+            try:
+                alternatives.extend(_find_instock_alternatives(conn, product_id, result["product"]))
+            finally:
+                conn.close()
+        if not alternatives:
+            _ensure_on_shopping(product_id, publish=False, announce=not special)
+    if alternatives is not None:
+        result["alternatives"] = alternatives
+    result["on_shopping"] = _fetch_one_sql(
+        "SELECT 1 FROM shopping_list WHERE product_id=?", [product_id]) is not None
+    if alternatives is not None and result["on_shopping"]:
+        result["alternatives"] = []
+    result["shopping_added"] = result["on_shopping"] and not result["was_on_shopping"]
+    if special:
+        try:
+            event.fire("vh_inventory_announce", kind="touchscreen_almost_out",
+                       product=result["product"], quantity=result["quantity"],
+                       outcome=result["outcome"], on_shopping=result["on_shopping"],
+                       shopping_added=result["shopping_added"],
+                       language="en" if state.get("input_select.vh_language") == "English" else "nl")
+            result["audio_requested"] = True
+        except Exception as error:
+            log.error("vh_inventory: touchscreen confirmation event failed: %s" % error)
+            result["audio_requested"] = False
+    elif result["outcome"] == "use" and result["quantity"] >= 1:
+        _announce_scan_used(product_id, result["quantity"])
+    _publish()
+    return result
+
+
+@service(supports_response="only")
+def vh_inventory_touchscreen_shopping_decision(product_id=None, add_to_shopping=None,
+                                              expected_stock=None, expected_almost_out=None):
+    """Resolve the touchscreen choice without repeating the recorded consumption."""
+    if type(add_to_shopping) is not bool:
+        raise ValueError("Choose whether to add the product to shopping.")
+    result = task.executor(
+        _touchscreen_stock_change, product_id, "ShoppingAdd" if add_to_shopping else "ShoppingSkip",
+        None, expected_stock, expected_almost_out)
+    if result["shopping_added"]:
+        _announce_shopping_add(product_id)
+    _publish()
+    return result
 
 
 def _mqtt_scan_topic():
@@ -1558,7 +1911,7 @@ def _add_inventory_qty(pid, qty, publish=True):
         _publish()
 
 
-def _ensure_on_shopping(pid, publish=True):
+def _ensure_on_shopping(pid, publish=True, announce=True):
     """Ensure a product is on the shopping list. Used when a Use-scan consumes a
     product that has no stock left (so it dropped out of / was never in the
     inventory) but is still needed. Adds it at its auto-add quantity if not
@@ -1578,7 +1931,7 @@ def _ensure_on_shopping(pid, publish=True):
     _log_history("auto-add", "shopping_list", shop_id,
                  "Scan-use(empty): added to shopping qty=%d (product_id=%d)"
                  % (add_qty, pid), publish=publish)
-    _announce_shopping_add(pid)
+    _announce_shopping_add(pid, suppress_tts=not announce)
 
 
 def _remove_inventory_qty(pid, qty, device=None, publish=True):
@@ -1885,7 +2238,7 @@ def _extract_speech(resp):
     return d["speech"]["plain"]["speech"]
 
 
-def _ai_same_product(scanned, candidates):
+def _ai_same_product(scanned, candidates, multiple=False):
     """Ask the configured HA conversation agent (Gemini) which candidate name, if
     any, is the SAME product as `scanned`. Returns a 4-tuple
     (matched_candidate_or_None, confidence_0_100, elapsed_ms, ok).
@@ -1894,20 +2247,29 @@ def _ai_same_product(scanned, candidates):
     signals the caller to fall back to the string scorer. When `ok` is True the
     decision is authoritative: a returned None means 'no same product' (do NOT fall
     back). `candidates` is a list of product-name strings; the returned match (when
-    not None) is the ORIGINAL candidate string. No call is made for an empty list."""
+    not None) is the ORIGINAL candidate string. With multiple=True it is a list of
+    original candidate strings and confidence describes the complete selection.
+    No call is made for an empty list; existing single-match callers are unchanged."""
     cands = [c for c in (candidates or []) if (c or "").strip()]
     if not cands:
-        return (None, 0, 0, True)
+        return ([] if multiple else None, 0, 0, True)
     numbered = "\n".join(["%d) %s" % (i + 1, c) for i, c in enumerate(cands)])
+    reply_format = (
+        "\n\nSelect ALL list entries that are the SAME product under the policy above. "
+        "Reply with ONLY a compact JSON object and nothing else: "
+        "{\"matches\": [\"<exact list text for each equivalent>\"], "
+        "\"confidence\": <integer 0-100>}. Use an empty matches array when none "
+        "qualify. Confidence is how sure you are of the complete selection."
+        if multiple else
+        "\n\nReply with ONLY a compact JSON object and nothing else: "
+        "{\"match\": \"<the exact list text that is the same product, or NONE>\", "
+        "\"confidence\": <integer 0-100>}. Confidence is how sure you are of the decision.")
     prompt = (
         "You deduplicate a grocery shopping/stock list. Decide whether a scanned "
         "product is the SAME product as one already on the list.\n"
         + _ai_match_policy()
         + "\n\nScanned product: \"" + (scanned or "") + "\"\nList:\n" + numbered
-        + "\n\nReply with ONLY a compact JSON object and nothing else: "
-          "{\"match\": \"<the exact list text that is the same product, or NONE>\", "
-          "\"confidence\": <integer 0-100>}. Confidence is how sure you are of the "
-          "decision."
+        + reply_format
     )
     t0 = time.monotonic()
     _ai_counter_inc("counter.vh_ai_match_calls_today")
@@ -1918,12 +2280,26 @@ def _ai_same_product(scanned, candidates):
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         _ai_call_ok()
         data = _parse_ai_json(_extract_speech(resp))
+        if multiple:
+            selected = data.get("matches")
+            if not isinstance(selected, list) or any([not isinstance(name, str) for name in selected]):
+                raise ValueError("AI equivalents response must contain a matches array of names")
+            originals = {c.strip().lower(): c for c in cands}
+            accepted = []
+            for name in selected:
+                original = originals.get(name.strip().lower())
+                if original is None:
+                    raise ValueError("AI equivalents response contains an unknown candidate")
+                if original not in accepted:
+                    accepted.append(original)
         match = (data.get("match") or "").strip()
         try:
             conf = int(float(data.get("confidence", 0)))
         except Exception:
             conf = 0
         conf = max(0, min(100, conf))
+        if multiple:
+            return (accepted, conf, elapsed_ms, True)
         if not match or match.upper() == "NONE":
             return (None, conf, elapsed_ms, True)
         for c in cands:
@@ -2100,16 +2476,41 @@ def _cfg(key, default=""):
     return default if val in (None, "") else val
 
 
-def _resolve_barcode(bc):
+@service(supports_response="only")
+def vh_inventory_touchscreen_lookup(barcode=None):
+    """Read online barcode suggestions without registering or changing inventory."""
+    if (not isinstance(barcode, str) or not barcode.isascii()
+            or not barcode.isdigit() or not 1 <= len(barcode) <= 15):
+        raise ValueError("Use 1 to 15 barcode digits.")
+    product_id = _product_id_for_barcode(barcode)
+    if product_id is not None:
+        return {"product_id": product_id, "suggestion": None, "online_incomplete": False}
+    errors = []
+    info = _resolve_barcode(barcode, errors)
+    suggestion = None
+    truncated = False
+    if info:
+        suggestion = {}
+        for field in ("name", "description", "manufacturer", "unit"):
+            value = info.get(field) or ""
+            if not isinstance(value, str):
+                raise ValueError("Invalid online product details.")
+            truncated = truncated or len(value) > 255
+            suggestion[field] = value[:255]
+    return {"product_id": None, "suggestion": suggestion,
+            "online_incomplete": bool(errors), "truncated": truncated}
+
+
+def _resolve_barcode(bc, errors=None):
     """Try each provider in order; return the first normalised hit or None."""
     for name, base in _OFF_PROVIDERS:
-        res = _lookup_off(name, base, bc)
+        res = _lookup_off(name, base, bc) if errors is None else _lookup_off(name, base, bc, errors)
         if res:
             return res
-    res = _lookup_upcdb(bc)
+    res = _lookup_upcdb(bc) if errors is None else _lookup_upcdb(bc, errors)
     if res:
         return res
-    return _lookup_upc(bc)
+    return _lookup_upc(bc) if errors is None else _lookup_upc(bc, errors)
 
 
 def _strip_lang_prefix(category):
@@ -2121,7 +2522,7 @@ def _strip_lang_prefix(category):
     return category
 
 
-def _lookup_off(name, base, bc):
+def _lookup_off(name, base, bc, errors=None):
     """Open Food/Beauty/Pet Facts lookup (product API v2)."""
     url = "%s/api/v2/product/%s.json?fields=%s" % (base, bc, _OFF_FIELDS)
     try:
@@ -2129,9 +2530,13 @@ def _lookup_off(name, base, bc):
                           headers={"User-Agent": _HTTP_UA},
                           timeout=_HTTP_TIMEOUT)
     except Exception as e:
-        log.debug("vh_inventory %s lookup failed for %s (%s)" % (name, bc, e))
+        log.debug("vh_inventory %s lookup failed for %s (%s)" % (name, bc, type(e).__name__))
+        if errors is not None:
+            errors.append(name)
         return None
     if r.status_code != 200:
+        if errors is not None and r.status_code != 404:
+            errors.append(name)
         return None
     data = r.json()
     if data.get("status") != 1:
@@ -2162,7 +2567,7 @@ def _lookup_off(name, base, bc):
     return out
 
 
-def _lookup_upc(bc):
+def _lookup_upc(bc, errors=None):
     """UPC Item DB lookup (trial tier; 429 = rate limited)."""
     try:
         r = task.executor(requests.get, _UPC_URL,
@@ -2170,15 +2575,25 @@ def _lookup_upc(bc):
                           headers={"User-Agent": _HTTP_UA},
                           timeout=_HTTP_TIMEOUT)
     except Exception as e:
-        log.debug("vh_inventory upcitemdb lookup failed for %s (%s)" % (bc, e))
+        log.debug("vh_inventory upcitemdb lookup failed for %s (%s)" % (bc, type(e).__name__))
+        if errors is not None:
+            errors.append("upcitemdb")
         return None
     if r.status_code == 429:
         log.warning("vh_inventory upcitemdb rate limit hit for %s" % bc)
+        if errors is not None:
+            errors.append("upcitemdb")
         return None
     if r.status_code != 200:
+        if errors is not None and r.status_code != 404:
+            errors.append("upcitemdb")
         return None
     data = r.json()
-    if data.get("code") != "OK" or not data.get("items"):
+    if data.get("code") != "OK":
+        if errors is not None:
+            errors.append("upcitemdb")
+        return None
+    if not data.get("items"):
         return None
     it = data["items"][0]
     title = (it.get("title") or "").strip()
@@ -2200,7 +2615,7 @@ def _lookup_upc(bc):
     return out
 
 
-def _lookup_upcdb(bc):
+def _lookup_upcdb(bc, errors=None):
     """upcdatabase.org lookup (only runs when upcdb_api_key is configured)."""
     key = _cfg("upcdb_api_key")
     if not key:
@@ -2213,19 +2628,29 @@ def _lookup_upcdb(bc):
                                    "Accept": "application/json"},
                           timeout=_HTTP_TIMEOUT)
     except Exception as e:
-        log.debug("vh_inventory upcdatabase lookup failed for %s (%s)" % (bc, e))
+        log.debug("vh_inventory upcdatabase lookup failed for %s (%s)" % (bc, type(e).__name__))
+        if errors is not None:
+            errors.append("upcdatabase")
         return None
     if r.status_code != 200:
+        if errors is not None and r.status_code != 404:
+            errors.append("upcdatabase")
         return None
     text = r.text or ""
     start = text.find("{")
     if start < 0:
+        if errors is not None:
+            errors.append("upcdatabase")
         return None
     try:
         data = json.loads(text[start:])
     except Exception:
+        if errors is not None:
+            errors.append("upcdatabase")
         return None
     if not data.get("success"):
+        if errors is not None:
+            errors.append("upcdatabase")
         return None
     title = (data.get("title") or "").strip()
     if not title:
@@ -2253,15 +2678,56 @@ def _lookup_upcdb(bc):
 
 
 # ---------- DELETE ----------
+@pyscript_compile
+def _delete_unreferenced(table, id, expected_value):
+    """Delete an unchanged, unused reference and its history atomically."""
+    references = {
+        "locations": ("location", "stock", "location_id"),
+        "categories": ("category", "products", "category_id"),
+        "stores": ("store", "products", "store_id"),
+    }
+    if table not in references:
+        raise ValueError("Guarded deletion requires a reference table")
+    if (isinstance(id, bool) or not isinstance(id, (int, str))
+            or not str(id).isdigit() or int(id) < 1
+            or not isinstance(expected_value, str) or not expected_value.strip()):
+        raise ValueError("A valid reference id and original name are required")
+    column, linked_table, linked_column = references[table]
+    rid = int(id)
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT %s FROM %s WHERE id=?" % (column, table), [rid]).fetchone()
+        if row is None or row[0] != expected_value:
+            raise ValueError("Reference changed; refresh before deleting")
+        if conn.execute("SELECT 1 FROM %s WHERE %s=? LIMIT 1" % (linked_table, linked_column),
+                        [rid]).fetchone() is not None:
+            raise ValueError("Reference is in use and cannot be deleted")
+        conn.execute("DELETE FROM %s WHERE id=?" % table, [rid])
+        _hist_row(conn, "delete", table, rid, "Deleted unused %s id=%s" % (table, rid))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @service
-def vh_inventory_delete(table=None, id=None):
+def vh_inventory_delete(table=None, id=None, require_unused=False, expected_value=None,
+                        check_alternatives=True):
     """Delete a row by id from an allowed VH table."""
+    if type(require_unused) is not bool:
+        raise ValueError("require_unused must be a boolean")
+    if type(check_alternatives) is not bool:
+        raise ValueError("check_alternatives must be a boolean")
+    if require_unused:
+        task.executor(_delete_unreferenced, table, id, expected_value)
+        _publish()
+        return
     if table not in {"products", "locations", "categories", "stores", "stock", "shopping_list", "scan_queue"} or id in (None, ""):
         return
     if table == "stock":
         before = _product_totals()
         _exec("DELETE FROM stock WHERE id=?", [int(id)])
-        if _reconcile_shopping(before, _product_totals()):
+        if _reconcile_shopping(before, _product_totals(), check_alternatives=check_alternatives):
             _publish()
         _log_history("delete", "stock", id, "Deleted inventory id=%s" % id)
         return
@@ -2414,7 +2880,11 @@ def vh_inventory_edit_load(table=None, id=None):
 @pyscript_compile
 def _save_product_details(id, changes, expected):
     """Patch only edited fields and optionally relocate all stock, atomically."""
-    fields = {"manufacturer", "unit", "category_id", "store_id", "location_id"}
+    text_fields = ("name", "description", "manufacturer", "unit")
+    limits = {"auto_add_enabled": (0, 1), "auto_add_threshold": (0, 999),
+              "auto_add_quantity": (1, 999)}
+    columns = text_fields + tuple(limits) + ("category_id", "store_id")
+    fields = set(columns) | {"location_id"}
     if (isinstance(id, bool) or not isinstance(id, (int, str))
             or not str(id).isdigit() or int(id) < 1):
         raise ValueError("A valid product id is required")
@@ -2424,19 +2894,31 @@ def _save_product_details(id, changes, expected):
         raise ValueError("Provide supported edited fields and their original values")
     references = {"category_id": "categories", "store_id": "stores",
                   "location_id": "locations"}
+    changes = dict(changes)
     for field, value in changes.items():
-        if field in ("manufacturer", "unit"):
+        if field in text_fields:
             if not isinstance(value, str) or len(value) > 255:
                 raise ValueError("Product text must be at most 255 characters")
+            if field == "name":
+                if not value.strip() or value.strip() == NONE:
+                    raise ValueError("A product name is required")
+                changes[field] = value.strip()
+        elif field in limits:
+            minimum, maximum = limits[field]
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ValueError("Invalid automatic-shopping value")
         elif value is not None and (type(value) is not int or value < 1):
             raise ValueError("Select an existing reference or leave it unassigned")
         if field == "location_id":
             if (not isinstance(expected[field], list)
                     or any(not isinstance(v, str) for v in expected[field])):
                 raise ValueError("Original stock locations are required")
-        elif field in ("manufacturer", "unit"):
+        elif field in text_fields:
             if not isinstance(expected[field], str):
                 raise ValueError("Original product text is required")
+        elif field in limits:
+            if type(expected[field]) is not int:
+                raise ValueError("Original automatic-shopping values are required")
         elif expected[field] is not None and type(expected[field]) is not int:
             raise ValueError("Original reference ids are required")
 
@@ -2445,11 +2927,16 @@ def _save_product_details(id, changes, expected):
     try:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT manufacturer,unit,category_id,store_id FROM products WHERE id=?",
+            "SELECT %s FROM products WHERE id=?" % ",".join(columns),
             [pid]).fetchone()
         if row is None:
             raise ValueError("Product no longer exists")
-        current = dict(zip(("manufacturer", "unit", "category_id", "store_id"), row))
+        current = dict(zip(columns, row))
+        for field in text_fields:
+            current[field] = current[field] or ""
+        for field in limits:
+            if current[field] is None:
+                current[field] = 1 if field == "auto_add_quantity" else 0
         inventory = []
         for field, value in changes.items():
             if field == "location_id":
@@ -2462,13 +2949,16 @@ def _save_product_details(id, changes, expected):
                                     for r in inventory})
                 if locations != expected[field]:
                     raise ValueError("Stock locations changed; discard edits and look up again")
-            elif (current[field] or "" if field in ("manufacturer", "unit")
-                  else current[field]) != expected[field]:
+            elif current[field] != expected[field]:
                 raise ValueError("Product details changed; discard edits and look up again")
             if field in references and value is not None:
                 if conn.execute("SELECT id FROM %s WHERE id=?" % references[field],
                                 [value]).fetchone() is None:
                     raise ValueError("Selected reference no longer exists")
+        if "name" in changes and any(
+                name.lower() == changes["name"].lower() for (name,) in conn.execute(
+                    "SELECT name FROM products WHERE id<>?", [pid])):
+            raise ValueError("A product with this name already exists. Choose a different name.")
         for field, value in changes.items():
             if field != "location_id":
                 conn.execute("UPDATE products SET %s=? WHERE id=?" % field, [value, pid])
@@ -2577,7 +3067,7 @@ def _save_stock_details(id, product_id, changes, expected):
 def vh_inventory_save_stock_details(id=None, product_id=None, changes=None, expected=None):
     """Save the linked product and selected stock row by their existing IDs."""
     before, after = task.executor(_save_stock_details, id, product_id, changes, expected)
-    _reconcile_shopping({int(product_id): before}, {int(product_id): after})
+    _reconcile_shopping({int(product_id): before}, {int(product_id): after}, check_alternatives=False)
     _publish()
 
 
@@ -2763,14 +3253,16 @@ def vh_inventory_update_stock(id=None, product=None, location=None, quantity=0):
 
 
 @service
-def vh_inventory_adjust_stock(id=None, delta=0):
+def vh_inventory_adjust_stock(id=None, delta=0, check_alternatives=True):
     """Increment/decrement an inventory row's quantity by delta (clamped at 0)."""
+    if type(check_alternatives) is not bool:
+        raise ValueError("check_alternatives must be a boolean")
     if id in (None, ""):
         return
     before = _product_totals()
     _exec("UPDATE stock SET quantity=MAX(0, quantity + ?) WHERE id=?",
           [int(delta), int(id)])
-    if _reconcile_shopping(before, _product_totals()):
+    if _reconcile_shopping(before, _product_totals(), check_alternatives=check_alternatives):
         _publish()
     _log_history("adjust", "stock", id,
                  "Stock id=%s quantity %+d" % (id, int(delta)))

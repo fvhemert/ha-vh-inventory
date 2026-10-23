@@ -74,15 +74,48 @@ Full step-by-step instructions are in the **[Installation Guide](docs/INSTALLATI
   [Editable Excalidraw](docs/diagrams/database-schema.excalidraw).
 - **[Keuken Touchscreen](docs/TOUCHSCREEN.md)**: a
   separate 1920 x 1080 scan dashboard with USB/Bluetooth keyboard-scanner input,
-  Toevoegen/Gebruiken controls, read-only Opzoeken, and editable product details with
-  an explicit Save button, available at
-  `/keuken-touchscreen/scan`. Fixed bottom **Scannen** / **Boodschappenlijst** / **Voorraad** buttons
-  replace the separate tab strip. The shopping page at
-  `/keuken-touchscreen/scan#shopping` shows the live shopping list with quantity
-  controls and confirmed item removal. The inventory page at
-  `/keuken-touchscreen/scan#inventory` shows positive stock per location with
-  name/barcode search, category filtering, full stock editing and printing.
-  An offline preview is also included.
+  available at `/keuken-touchscreen/scan`. Current frontend:
+  `20261023-home-shortcut1`; backend: `20261023-alt-stock-batch1`.
+  Its twelve views remain separate from the original dashboard.
+  **Home**, **Recepten**, **Verlichting**, **Boodschappenlijst**, and the hamburger
+  appear at the top right in equal 104px buttons with 74.8px icons. Home returns
+  to **Boodschappenlijst en voorraad**; the shopping shortcut opens the separate
+  shopping list. Selected icons are black on pink, and Recepten uses an outlined
+  open book. Narrow screens wrap the buttons without covering page headings.
+  The hamburger starts with **Boodschappenlijst en voorraad**, **Recepten**,
+  **Keuken**, then shopping, quick actions, **Configuratie**, and **Onderhoud**.
+  Onderhoud contains inventory, products, locations, categories and stores.
+  Pending scans, shopping decisions and unsaved edits guard every route.
+  Scan modes are **Opzoeken**, **Toevoegen**, **Bijna op**, **Verbruikt**, with
+  read-only Opzoeken selected initially. Name search also works in Bijna op and
+  Verbruikt; selecting a product does not change stock until explicitly confirmed.
+  Product edits and unknown-product registration require an explicit save.
+  Bijna op counts a package early; repeated Bijna op and the later Verbruikt
+  acknowledgement never count it twice. Restocking retains the marker.
+  When Verbruikt would add shopping and equivalent products remain in stock,
+  the touchscreen shows alternatives and asks whether to add the consumed product.
+  Stock is already deducted once. The choice does not time out; its two buttons
+  only decide shopping. One semantic AI request uses the existing matching policy,
+  with explicit milk-type exclusions. Touchscreen actions never open ESPHome
+  shopping prompts; physical scanners retain their own behavior.
+  Idle product details show Dutch news refreshed every 15 minutes. Headlines open
+  short RSS previews inside the card, without external windows or publisher pages.
+  **Keuken - Verlichting en muziek** provides Werkblad/Plafond lighting, Ledstrip
+  presets, and native Sonos playback, volume, mute and local radio-favorite logos.
+  The Verlichting shortcut only opens this view; it does not control a device.
+  **Recepten** is a read-only Mealie browser with search, photos and ingredients,
+  preparation and notes. Its overview refreshes every 30 seconds while visible;
+  open recipes are left alone. Cook mode enlarges preparation steps, while the
+  navigation stays available. The Recepten shortcut returns to the overview.
+  Shopping, quick shopping/stock, inventory and management retain explicit
+  confirmations, row-ID-safe edits and uncertain-write recovery without retries.
+  Shopping and inventory have confirmed print actions.
+  Both dashboards share English/Nederlands and household settings. Touchscreen
+  fullscreen is independent of the original dashboard. No credentials are embedded
+  in the frontend; Mealie credentials stay in Home Assistant.
+  The [touchscreen guide](docs/TOUCHSCREEN.md) covers installation, all workflows,
+  synthetic offline previews and validation. Deployment and live mutations require
+  approval; never repeat an uncertain scan without checking stock first.
 - 📦 **[Installation Guide](docs/INSTALLATION.md)** — install on a fresh Home Assistant
   server: pyscript backend, custom Lovelace cards, configuration package, database, and
   the dashboard builder.
@@ -106,12 +139,14 @@ copying each folder to the matching location under `/config`:
 | Path in this repo | Copy to | What it is |
 |---|---|---|
 | `pyscript/apps/vh_inventory/__init__.py` | `/config/pyscript/apps/vh_inventory/__init__.py` | Backend app: creates the DB, exposes `sensor.vh_inventory_*`, and all read/write services |
+| `pyscript/vh_touchscreen_news.py` | `/config/pyscript/vh_touchscreen_news.py` (optional) | Isolated Dutch RSS worker for idle touchscreen news; no inventory writes |
 | `packages/vh_inventory.yaml` | `/config/packages/vh_inventory.yaml` | The solution package: input helpers, scripts, template sensors |
 | `themes/vh_inventory.yaml` | `/config/themes/vh_inventory.yaml` | Optional dashboard theme |
 | `translations/*.json` | (next to `mk_dash.py`) | Build-time inputs for the multi-language layer |
+| `translation_catalog.py` | next to both dashboard builders | Loads the shared, main-dashboard and touchscreen translation sections |
 | `mk_dash.py` | your workstation | Builds and publishes the Lovelace dashboard over WebSocket |
 | `build_touchscreen.py` | your workstation | Generates the optional touchscreen configuration and synthetic offline preview; never deploys |
-| `www/` | `/config/www/` (optional) | Dedicated touchscreen JavaScript module and logo; see the touchscreen installation guide |
+| `www/` | `/config/www/` (optional) | Touchscreen module, logo, icon attribution and local radio-favorite artwork |
 | `configuration.example.yaml` | merge into `/config/configuration.yaml` | The only additions your root config needs (see below) |
 
 Two optional folders hold the **Large screen barcode scanners** (ESPHome) — they are *not*
@@ -139,6 +174,8 @@ copy-ready blocks and the Installation Guide for details.
 | Data | SQLite database (self-creating schema) | `/config/vh_inventory.db` |
 | Backend | pyscript app (sensors + services) + config package (helpers + scripts) | `pyscript/apps/vh_inventory/__init__.py`, `packages/vh_inventory.yaml` |
 | Frontend | Tabbed Lovelace dashboard built by `mk_dash.py`, with a live JS translation layer | URL path `/vh-inventory` |
+| Touchscreen | Separate full-width dashboard generated locally by `build_touchscreen.py` | `/keuken-touchscreen/scan`, dedicated module under `www/` |
+| News | Optional isolated RSS cache/publication worker, without stock or shopping changes | `pyscript/vh_touchscreen_news.py` |
 
 ## Multi-language
 

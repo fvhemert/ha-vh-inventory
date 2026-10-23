@@ -43,8 +43,11 @@ Workstreams: general
 ## Interaction and safety
 
 - New/recreated scan cards default to read-only Opzoeken. Add/Use must be explicit.
-- Keep the three 68px bottom navigation buttons stationary on every page; scroll
-  content above them. Preserve drafts, filters and last scan when switching pages.
+- Keep the five 104px top-right controls stationary on every page: Home, Recipes,
+  Lighting, Shopping and hamburger, with equal 74.8px glyphs. Reserve heading
+  clearance, including recipe cook mode; wrap into three rows at widths up to 600px.
+  Home opens the combined scan page; Shopping opens the separate shopping list.
+  Use the shared guarded routes and preserve drafts, filters and last scan.
 - Product in the full editor is free text. Keep the field rows Barcode/Product,
   Fabrikant/Winkel, Categorie/Eenheid, Locatie/Aantal, with aligned Opslaan/Afbreken.
 - Serialize writes and verify fresh data before/after changes. Never retry an

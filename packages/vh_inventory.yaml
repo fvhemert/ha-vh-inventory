@@ -416,6 +416,9 @@ input_boolean:
   vh_kiosk_mode:
     name: VH Kiosk Mode
     icon: mdi:fullscreen
+  vh_touchscreen_fullscreen:
+    name: VH Touchscreen Fullscreen
+    icon: mdi:fullscreen
   vh_tts_enabled:
     name: VH TTS Enabled
     icon: mdi:bullhorn
@@ -1182,11 +1185,14 @@ automation:
       - condition: template
         value_template: >-
           {{ (trigger.event.data.kind == 'shopping_add'
+                and not (trigger.event.data.suppress_tts | default(false))
                 and is_state('input_boolean.vh_tts_announce_shopping_add', 'on'))
              or (trigger.event.data.kind == 'scan_unresolved'
                 and is_state('input_boolean.vh_tts_announce_scan_unresolved', 'on'))
              or (trigger.event.data.kind == 'scan_used'
                 and (trigger.event.data.quantity | default(0) | int) >= 1
+                and is_state('input_boolean.vh_tts_announce_scan_used', 'on'))
+             or (trigger.event.data.kind == 'touchscreen_almost_out'
                 and is_state('input_boolean.vh_tts_announce_scan_used', 'on'))
              or (trigger.event.data.kind == 'similar_found'
                 and is_state('input_boolean.vh_tts_announce_similar', 'on'))
@@ -1204,7 +1210,43 @@ automation:
       alt: "{{ trigger.event.data.alt | default('') | trim }}"
       alt_qty: "{{ trigger.event.data.alt_qty | default('') }}"
       message: >-
-        {% if trigger.event.data.kind == 'scan_unresolved' %}
+        {% if trigger.event.data.kind == 'touchscreen_almost_out' %}
+        {% set qty = trigger.event.data.quantity | default(0) | int %}
+        {% set outcome = trigger.event.data.outcome | default('') %}
+        {% if trigger.event.data.language | default('nl') == 'en' %}
+          {% if outcome == 'almost_out' %}
+          {{ product }} marked almost out.
+          {% elif outcome == 'already_almost_out' %}
+          {{ product }} was already marked almost out. Stock has not been reduced again.
+          {% else %}
+          {{ product }} was already counted. Stock has not been reduced again.
+          {% endif %}
+          There are {{ qty }} left in stock.
+          {% if trigger.event.data.shopping_added | default(false) %}
+          Added to the shopping list.
+          {% elif trigger.event.data.on_shopping | default(false) %}
+          Already on the shopping list.
+          {% else %}
+          Not on the shopping list.
+          {% endif %}
+        {% else %}
+          {% if outcome == 'almost_out' %}
+          {{ product }} gemarkeerd als bijna op.
+          {% elif outcome == 'already_almost_out' %}
+          {{ product }} stond al als bijna op. De voorraad is niet opnieuw verlaagd.
+          {% else %}
+          {{ product }} was al verwerkt. De voorraad is niet opnieuw verlaagd.
+          {% endif %}
+          Er zijn nog {{ qty }} op voorraad.
+          {% if trigger.event.data.shopping_added | default(false) %}
+          Toegevoegd aan de boodschappenlijst.
+          {% elif trigger.event.data.on_shopping | default(false) %}
+          Staat al op de boodschappenlijst.
+          {% else %}
+          Staat niet op de boodschappenlijst.
+          {% endif %}
+        {% endif %}
+        {% elif trigger.event.data.kind == 'scan_unresolved' %}
         {% set t = states('input_text.vh_tts_msg_scan_unresolved') %}
         {% if t in ['', 'unknown', 'unavailable'] %}
         {% set t = 'Onbekende streepjescode gescand. Handmatige invoer nodig.' %}

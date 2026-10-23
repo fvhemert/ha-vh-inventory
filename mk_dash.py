@@ -1,4 +1,5 @@
-import json, websocket, os, glob, urllib.request, datetime
+import json, websocket, os, urllib.request, datetime
+from translation_catalog import load_translations
 
 # --- Connection settings -----------------------------------------------------
 # Set these via environment variables before running:
@@ -13,19 +14,7 @@ _TRANS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translati
 
 
 def _load_translations():
-    maps, langs = {}, {}
-    for fp in sorted(glob.glob(os.path.join(_TRANS_DIR, "*.json"))):
-        with open(fp, encoding="utf-8") as f:
-            d = json.load(f)
-        code = d.get("__code__") or os.path.splitext(os.path.basename(fp))[0]
-        name = d.get("__name__") or code
-        maps[code] = {k: v for k, v in d.items() if not k.startswith("__")}
-        langs[name] = code
-    keys = {}
-    for strings in maps.values():
-        for k in strings:
-            keys[k] = 1
-    return maps, langs, keys
+    return load_translations("main", _TRANS_DIR)
 
 
 I18N_MAP, I18N_LANGS, I18N_KEYS = _load_translations()
@@ -1392,6 +1381,7 @@ _I18N_JS = (
   "if(n.nodeType===3){if(!mo){tx(n,lang);}"
   "else{var pe=n.parentElement;if(pe&&pe.classList&&pe.classList.contains('vh-i18n'))tx(n,lang);}}"
   "else if(n.nodeType===1){var ex=EXCL[n.tagName]?1:0;"
+  "if(n.tagName==='VH-INVENTORY-TOUCHSCREEN-DASHBOARD')continue;"
   "if(n.shadowRoot){if(!seen.has(n.shadowRoot)){seen.add(n.shadowRoot);obs(n.shadowRoot);}"
   "walk(n.shadowRoot,lang,mo||ex);}walk(n,lang,mo||ex);}}}"
   "function run(){walk(document.body,curLang(),0);}"

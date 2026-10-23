@@ -68,14 +68,236 @@ The tabs, left to right:
 ### Keuken Touchscreen
 
 The optional **Keuken Touchscreen** dashboard is separate from the tabbed dashboard.
-Open `/keuken-touchscreen/scan` on a 1920 x 1080 landscape screen. Its three
-equal-height bottom buttons stay fixed while the page content scrolls.
+Open `/keuken-touchscreen/scan` on a 1920 x 1080 landscape screen. The pink
+**mdi:menu** hamburger at the top right opens **Boodschappenlijst en voorraad**,
+**Recepten**, **Keuken**, **Boodschappenlijst**, **Snelle Boodschappen**, **Snelle Voorraad**,
+**Configuratie**, and **Onderhoud**. The bottom bar is removed so page content
+uses the recovered height.
+Vertical scrollbar indicators are hidden while page and popup scrolling remain
+available. Wide tables still scroll horizontally.
+Expand **Onderhoud** for **Voorraad**, **Producten**, **Locaties**, **Categorieën**
+and **Winkels**. The menu closes after selecting a page, using its close button,
+tapping outside or pressing Escape. The active page is highlighted; the menu
+scrolls on short screens and leaves filters and drafts intact. Save or discard
+unsaved edits before switching pages. Barcode and Product have no adjacent action
+buttons. Submit a barcode with the scanner's Enter suffix or keyboard Enter.
+The mode buttons appear in that order, with Opzoeken selected initially.
+The scan-page title is **Boodschappenlijst en voorraad** in Dutch and
+**Shopping list and stock** in English. Scanmodus, Scan je product and Zoek je
+product are three separate cards with matching backgrounds and aligned left
+edges beside the logo. Scanmodus includes the pink tune icon, explanation and
+four mode buttons. Product details stay on the right at desktop widths.
+The hamburger glyph is 74.8px, 70% larger than before, with a 104px touch button.
+Equally sized **Home**, **Recepten**, **Verlichting** and **Boodschappenlijst**
+shortcuts sit immediately to its left. Home returns to **Boodschappenlijst en voorraad**.
+Selected shortcut icons are black on solid pink, including hover in both themes.
+The recipe icon is an outlined open book with visible page lines.
+Verlichting opens the kitchen controls without
+toggling a device; Boodschappenlijst opens the shopping list. Pending scans,
+shopping choices and unsaved edits still prevent navigation. On small screens
+the five buttons wrap into three rows at widths up to 600px, with heading space reserved below them.
+Narrow screens stack the columns and allow scrolling.
+All twelve views and recipe cook mode use the same responsive horizontal margins.
+The scan-page logo and cards share that left edge without an extra menu gutter.
+The idle product-details area shows six Dutch headlines, two each from NOS,
+NU.nl and Omroep Brabant. An independent worker refreshes them every 15 minutes.
+Source/time labels and an updated timestamp remain visible. Cached or failed
+sources are explicitly labelled; news problems never disable scanning.
+Scanning or selecting a product replaces news with its details; Cancel or normal
+result dismissal restores it. Processing, unsaved drafts and uncertain actions
+keep priority. News and every product-details/registration card align with the
+bottom of the visible left-hand cards on desktop, including when Zoek je product
+is hidden in Toevoegen. Long right-hand content scrolls internally, keeping the
+action buttons accessible. Narrow screens stack naturally.
+The offline preview still uses clearly labelled fictitious headlines and no feeds.
+Tap a headline to read its short RSS preview inside
+the same card. **Terug naar de koppen** returns to the current list.
+The full-story button was removed in `20261023-news-kiosk1`: HA-WinKiosk handed
+those links to external Edge windows, while publishers block their original pages
+from being embedded in the card. News now stays inside the dashboard.
+The preview does not load publisher scripts, ads or images.
+
+**Current backend `20261023-alt-stock-batch1`: similar stock after Verbruikt.**
+The current frontend is home-shortcut1. The backend fixes an error in alternative-stock
+history logging that could show an uncertain scan after stock was deducted.
+Never repeat an uncertain scan without first checking stock and shopping.
+When the scanned product would go on the shopping list but an equivalent product
+is still on the shelf, the details card lists those equivalents and quantities.
+**Zet op de boodschappen lijst** adds the scanned product, not its substitute.
+**Niet op de boodschappen lijst zetten** leaves the shopping list unchanged.
+Stock has already been processed once; neither button decreases it again.
+Choose before scanning another product or leaving the page. The choice stays open
+instead of disappearing after ten seconds. Reloading never implicitly adds shopping.
+The same flow follows an explicitly confirmed name-search Verbruikt action.
+After choosing, the card shows **Product aan de boodschappenlijst toegevoegd**
+or **Product niet aan de boodschappenlijst toegevoegd**, together with the updated
+stock. Ten seconds later, it returns to the news card.
+The configured auto-add threshold still applies. With threshold 2, consuming
+2 to 1 can already show the choice. If you choose No, consuming 1 to 0 can show
+it again. If you choose Yes, the product is already listed and will not be added
+or offered again. Existing shopping entries are never removed by No.
+The two Houdbare Magere Melk products from PLUS and JUMBO can match because only
+their brands differ. All equivalents are checked in one AI request, rather than
+successive requests for additional matches. The AI can still take several seconds.
+
+Matching follows the ESPHome settings, not a new name-only comparison. The selected
+AI policy permits different brands/shelf life, but not different product types:
+halfvolle houdbaar can match halfvolle; magere does not. AI must be enabled and
+healthy for semantic decisions; its existing configured offline/error fallback
+still applies. The touchscreen excludes explicit magere/halfvolle/volle conflicts
+before either matching route, even if the AI would accept them. Houdbare Magere
+Melk (JUMBO) can be offered for Houdbare Magere Melk (PLUS); Halfvolle melk cannot.
+If no equivalent is found, normal shopping rules remain in force.
+Touchscreen actions never open questions on ESPHome scanners. Add skips the
+physical similarity popup. Bijna op, Snelle Voorraad and inventory quantity
+edits/deletions follow normal auto-add rules without a physical-scanner choice.
+The ESPHome scanners keep their own existing behavior for scans made on them.
+Feed refreshes do not replace a story being read. Scanning temporarily replaces
+the reader with product details; closing those details restores the selected preview.
+Missing previews/links are clearly labelled. The fictitious offline examples do
+not link to fabricated full stories.
+Scanning in Opzoeken does not write automatically; saving edited details is explicit.
+Verbruikt is a scan-page display label only; the internal action remains `Use`.
+The main dashboard and Snelle Voorraad keep their existing labels.
+Undefined category/store/location fields and empty reference choices are blank
+on Keuken TS. The explicit Niet toegewezen category filter, ad-hoc item labels
+and broken-reference warnings remain labelled. Stored values and the original
+dashboard are unchanged.
+Before the first scan, the last-scanned-product panel is hidden. Successful saves
+and stock actions show their result for 10 seconds or until the next scan.
+**Afbreken** discards changes and hides the panel immediately. Unsaved drafts and
+save errors remain visible until addressed.
+Online matches in Toevoegen say **Nieuw product gevonden online**. Unknown
+Bijna op/Verbruikt barcodes say **Product niet gevonden in de voorraad** and
+hide after 10 seconds without changing data.
+The scan icon and instructions share a vertically centered row. Below the barcode
+hint, a pink **mdi:keyboard-outline** icon and **Zoek je product** introduce a second **Product** field with
+**Type minimaal 4 letters** underneath and the current mode beside it.
+In **Opzoeken**, **Bijna op** or **Verbruikt**, tap the Product field or focus it
+and press Enter to open the search popup.
+Type at least four characters of a product name. Matches update in a scrollable
+list below the input. Select one, or submit a unique match, to close search and
+open details. **Opzoeken** shows editable fields with **Opslaan** and **Afbreken**.
+**Bijna op** and **Verbruikt** show read-only fields with **Afbreken** and the
+selected action. Selecting a product changes nothing. **Afbreken** closes without
+changes; confirming the mode action uses the existing scanner behavior, including
+counted-once Bijna op stock. Pending actions stay open; successful actions close
+after 10 seconds. If stock changed since selection, search again before confirming.
+Do not retry uncertain writes without checking inventory. The popup adapts to the
+visible viewport when the keyboard opens; its close button or Escape cancels
+without saving. Name search ignores case/accents and includes products without
+barcodes. The whole search section is hidden only in **Toevoegen**.
+Search never looks online or changes stock while typing or selecting.
+The large colored feedback box is removed; errors remain visible as compact messages.
+The scan-page Barcode field requests no onscreen keyboard on focus. A physical
+keyboard or keyboard-mode scanner still works, including Enter submission.
+Product-editor barcode inputs keep their numeric keyboard hints. Native keyboard
+suppression depends on the browser/device and should be checked on the touchscreen.
 
 | Page | What you can do |
 |---|---|
-| **Scannen** | Scan with a USB/Bluetooth keyboard scanner. **Opzoeken** is the read-only default; choose **Toevoegen** or **Gebruiken** explicitly to change stock. Existing products also support explicit-save detail editing. |
-| **Boodschappenlijst** | View catalogue and ad-hoc items, adjust quantities and confirm removal. Opens directly at `/keuken-touchscreen/scan#shopping`. |
-| **Voorraad** | View stock of at least one per location. Search by name/barcode, filter by category, edit category/store/location, adjust quantities, add/edit/remove stock, or request a full inventory print. Opens directly at `/keuken-touchscreen/scan#inventory`. |
+| **Keuken** | Third hamburger-menu entry or `#kitchen`; page heading **Keuken - Verlichting en muziek**. Control Werkblad/Plafond power, brightness and warm/cool white, plus native Sonos kitchen playback, volume, mute, now-playing and radio/source selection. |
+| **Boodschappenlijst en voorraad** | First menu entry; the existing scan page. Scan with a USB/Bluetooth keyboard scanner. **Opzoeken** shows editable product details with **Opslaan** and **Afbreken**; barcode stays fixed. Saving updates an existing product without changing total stock or shopping quantities. Known Toevoegen/Verbruikt/Bijna op results are read-only and show the stock or marker outcome. Unknown barcodes in Opzoeken and Toevoegen fetch online details as an editable **Nog niet opgeslagen** draft; misses or failures allow manual entry. The badge shows **Online** for an online draft or **Uit database** for saved data. Only **Opslaan** creates a product: Opzoeken saves metadata only; Toevoegen also adds one stock item at the chosen location. No new scan-queue row is created. Unknown Bijna op/Verbruikt products cannot be registered here. |
+| **Boodschappenlijst** | View catalogue and ad-hoc items, adjust quantities and confirm removal. **Boodschappenlijst afdrukken** prints the full list using the same server script and per-store receipt layout as the main dashboard. Opens directly at `/keuken-touchscreen/scan#shopping`. |
+| **Snelle Boodschappen** | Search catalogue-product buttons and tap to add quantity 1 or remove the entire shopping entry. Opens directly at `/keuken-touchscreen/scan#quick-shopping`. |
+| **Snelle Voorraad** | Search product buttons; tap an in-stock item to use 1, or an out-of-stock product to add 1. Stock buttons show a small number-only quantity block at the bottom-left, without a location field. Opens directly at `/keuken-touchscreen/scan#quick-stock`. |
+| **Voorraad** | Open from Onderhoud in the hamburger menu. By default shows positive stock per location without Bijna op products. Two initially-off switches include Bijna op and zero-stock products; either reveals a product in both groups. At zero stock, bordered category/store/location fields match stocked rows; **+** adds one unassigned unit and the pencil opens the Producten editor. No per-row Toevoegen button; Actie keeps the pencil. The page-level Add form still accepts location and quantity. Stocked rows show minus, plus and a pencil, with no separate Verwijderen button. Minus confirms removal of the last unit. Search, category filtering, full stock editing and printing remain available; Bijna op flags are preserved. Opens directly at `/keuken-touchscreen/scan#inventory`. |
+| **Producten** | Open from Onderhoud in the hamburger menu or `#products`. Search the full catalogue, add/edit all product fields and Auto-Add settings, change category/store/threshold/quantity inline, or confirm product deletion including linked stock/shopping entries. |
+| **Locaties** | Open from Onderhoud in the hamburger menu or `#locations`. Search, add, rename and delete unused locations. Existing stock links retain their IDs when renamed. |
+| **Categorieën** | Open from Onderhoud in the hamburger menu or `#categories`. Search, add, rename and delete unused categories. Product links are preserved. |
+| **Winkels** | Open from Onderhoud in the hamburger menu or `#stores`. Search, add, rename and delete unused stores. Product links are preserved. |
+| **Configuratie** | Open Configuratie in the hamburger menu, above Onderhoud, or `#configuration`. Access the same shared application, TTS/Sonos, notification, handheld, AI, similarity, alternative-stock and three-scanner settings as the main Setup tab. |
+
+Shopping printing reports a request sent, not physical completion. Repeated taps
+are disabled while pending. If the result is uncertain, check the printer and use
+**Boodschappenlijst vernieuwen** before trying again; refresh does not print.
+
+Werkblad and Plafond show bulb badges: warm/cool color follows Kelvin and icon
+intensity follows brightness. Known numeric values remain available through
+the tooltip and accessible name. Off uses an outlined bulb-off
+icon, while unavailable has a neutral question icon. The existing power buttons
+and sliders still perform the actions.
+
+Sonos uses one row of bordered Play/Pause, Mute/Unmute, Previous track and Next
+track icon buttons. Play/Pause turns pink while playing; Mute turns pink while
+muted. They follow the reported player state independently.
+Their tooltips and accessible names describe the action in the selected language.
+
+Keuken uses `light.z_keuken_werkblad`, `light.z_keuken_plafond` and
+`media_player.keuken`, not the Music Assistant duplicate. Turn a light on before
+adjusting its sliders. Unsupported/offline controls are disabled. **Radio / Bron**
+shows Sonos favorites as logo tiles, with an accent border for the current source.
+Tap a tile to choose that station using the same source-selection action as before.
+The five existing station logos are stored locally; a favorite without artwork
+shows its name. Slider release sends one command. Group playback can affect other
+speakers. If a response is uncertain, do not repeat it: use **Bediening vernieuwen**
+and check the device first. Opening or navigating the page sends no device commands.
+Kitchen controls do not change inventory or TTS settings.
+Otherwise available controls keep their normal appearance while a command is
+pending, but remain locked against extra taps. The status message reports
+progress; unavailable controls still look disabled.
+Feedback, slider values and player details have reserved space even while empty.
+Appearing values, status, title/artist and group warnings do not move the other
+controls. Long text scrolls inside its own focusable area instead of expanding
+the card; its full text is also available in the tooltip.
+Sonos status stays on one line in a wider slot. Longer statuses scroll
+horizontally within that slot instead of wrapping.
+The Barcode and Product fields use the full available row width, with no adjacent
+buttons. Changing the mode does not resize either field.
+Across all twelve views, feedback, recovery controls and changing text have
+reserved space. Scan product titles, descriptions and editing feedback do not
+move other fields when text wraps. Table metadata and quick-action tiles keep
+consistent dimensions; configuration values and speaker-choice lists scroll
+within their own areas. Long text remains readable by scrolling, with full-text
+tooltips where applicable. When scan recovery is needed, **Stock checked,
+continue** replaces the keyboard helper below Barcode.
+Opening an editor, changing filters or adding/removing records still changes
+the displayed content intentionally.
+**Recepten**, the second hamburger-menu entry, opens a simple read-only Mealie browser.
+Search the recipes accessible to the kitchen account, tap a recipe for its
+ingredients, preparation and notes. Search is hidden while reading a recipe.
+Recipe tiles include a thumbnail when available. A compact photo appears beside
+the recipe details; the full picture fits within its frame. Missing or failed
+photos show a pink cookbook icon in the same fixed space without shifting
+the page. **Foto niet beschikbaar** remains available to screen readers but
+is no longer displayed. Photographs require a configured Mealie image origin reachable from
+the browser; no Mealie login is requested on the dashboard.
+The gap below search is smaller: recipe count and feedback share one compact,
+fixed-height row. Long feedback scrolls within that row instead of moving recipes.
+Tap the expand icon beside **Bereiding** for cook mode: preparation fills the
+available content area in a larger font. The collapse icon returns to
+the full recipe at your previous scroll position. The icons have large touch
+targets even though the symbols are compact. The **Recepten** shortcut and the
+hamburger-menu entry both return to the overview with your search preserved.
+Cook mode does not change or reload the recipe.
+The overview fetches the current recipes when opened and checks every 30 seconds
+while visible. New recipes appear automatically without clearing search or scroll
+position. These background reads do not interrupt an open recipe. Updates pause
+while the browser tab is hidden or another page is open.
+There is no separate back button. **Vernieuwen** appears only after an error and
+retries the failed recipe or list read. Loading and error feedback retain their
+own space; long recipe content scrolls within the available page height.
+No recipes, meal plans, shopping lists or inventory data are changed.
+The official Home Assistant Mealie integration must be configured first.
+After HA confirms the requested state, feedback changes to **Succesvol uitgevoerd.**
+or **Successfully executed.** This is HA state confirmation, not independent
+physical verification. LED presets and previous/next retain request-sent feedback.
+Sliders use explicit track/thumb styling so the browser does not grey them during
+that temporary lock. On narrow screens, the player-button row scrolls horizontally
+without shrinking its touch targets or wrapping.
+Below Werkblad, the separate **Ledstrip** panel provides **Warm**, **Koud** and **Uit**,
+using the same preset automations as the woonkamer-TS kitchen popup.
+Uit dims the strip to zero; it does not switch its power relay. Presets confirm only
+that the request was sent, without claiming an observed color or physical result.
+**Automatisch uit (Werkblad)** and **Voeding** are no longer displayed. The existing
+Werkblad-light automatic-off automation and LED relay are unchanged.
+Other controls update in real time. **Bediening vernieuwen** is shown only after a failed or
+uncertain action/refresh and disappears after successful recovery, not during normal use.
+
+Snelle Voorraad taps save immediately without confirmation. A product moves to the
+add grid only when all its locations are depleted. Adding creates quantity 1 at an
+unassigned location unless an existing row is available. Existing automatic
+shopping-list rules still apply when stock changes.
 
 In **Voorraad bewerken**, Product is free text for renaming the same catalogue
 record, not a selector for another product. The field rows are Barcode/Product,
@@ -84,14 +306,43 @@ Fabrikant/Winkel, Categorie/Eenheid, and Locatie/Aantal. **Opslaan** saves the d
 location and quantity apply only to the selected stock row. IDs and existing
 database links remain unchanged.
 
-Inline dropdowns and quantity buttons save immediately. The full editor saves
-only when you press Opslaan. Refresh buttons appear only for errors/recovery.
+Management forms use local drafts, not the main dashboard's shared inputs.
+Product names are free text. Product deletion removes all its stock and
+shopping-list rows after explicit confirmation. Locations, categories and stores
+cannot be deleted while referenced; the backend checks this atomically along
+with the expected name and history write. Renaming preserves IDs and links.
+
+Configuration offers **Volledig scherm (Keuken Touchscreen)** under Application settings. It
+hides both Home Assistant bars when enabled and restores them when disabled.
+It applies to all browsers using Keuken Touchscreen and remembers your choice
+across restarts, independently of the main dashboard's **Kop verbergen (kiosk)**.
+The hamburger menu and Configuratie remain available in fullscreen.
+Browser tabs/address bars are separate; use the browser's fullscreen mode for those.
+
+Configuration text, numeric and dropdown edits require **Opslaan**; **Afbreken**
+discards them. On/off and target-selection buttons apply immediately, but scanner
+print switches require confirmation. Limits/options come from HA; offline entities
+cannot be edited and counters/scans are read-only. Language is shared by both
+dashboards; ID columns and kiosk/header settings still apply only to main.
+Configuration always offers
+**Instellingen vernieuwen**, including speaker discovery and uncertain-write recovery.
+Changes affect the existing application and devices, not independent copies.
+
+Inline management dropdowns, product threshold/quantity fields and quantity buttons save immediately. The full editor saves
+only when you press Opslaan. Management refresh buttons appear only for errors/recovery.
 An uncertain write is never retried automatically; refresh and check the real
 stock/shopping list before trying again.
 
 For setup, scanner behavior, editing safeguards and known limitations, see
 the [Keuken Touchscreen guide](TOUCHSCREEN.md). The main dashboard and scanner
 modes are not replaced or changed by opening this dashboard.
+
+The **Snelle Boodschappen** page mirrors
+the main dashboard's Quick Shopping grid. Search by name/barcode, tap to add a
+catalogue product at quantity 1, or tap an existing product to remove its entire
+shopping-list entry without confirmation. Stock and ad-hoc items are unchanged.
+It is available from the shared top-right hamburger menu.
+See the [behavior and recovery rules](TOUCHSCREEN.md#snelle-boodschappen-page).
 
 ---
 
@@ -401,9 +652,16 @@ a single hard refresh (Ctrl+F5).
 
 ### Switching language
 
-Pick a language from the **Language** dropdown. The entire interface — tabs, table titles,
-column headers, pop-up titles, buttons, and field labels — switches **instantly**. Your
-data (product names, locations, categories, etc.) is never translated.
+Pick **English** or **Nederlands** from **Setup > Language**. Both dashboards use
+the same `input_select.vh_language`. You can also open the touchscreen's hamburger
+menu, choose **Configuratie**, edit **Application settings > Language** and
+press **Save / Opslaan**. Cancelling that editor does not change the language.
+
+Tabs, navigation, table titles, column headers, pop-up titles, buttons and field
+labels follow the shared selection. The touchscreen retains open edits, keyboard
+focus, inline typing, filters, scanner mode and the last scan. Product, location,
+category and device names, barcodes and entered values stay unchanged.
+Reload both browser pages once after installing the shared-language update.
 
 Here is the **Products** tab with the language set to **Nederlands**:
 
@@ -413,8 +671,9 @@ Notice that the chrome is translated (*Producten, Naam, Fabrikant, Eenheid, Cate
 Winkel, Bewerk, Verw., Toevoegen*) while the product data stays exactly as entered.
 
 > **Adding more languages:** drop a new `translations/<code>.json` file, add its display
-> name to the language selector, and rebuild the dashboard. See the Installation Guide,
-> section 10.
+> name to the language selector, and update both dashboards' embedded maps. Keep
+> shared wording in `generic`, main-only wording in `main`, and touchscreen-only
+> wording in `touchscreen`. See the Installation Guide, section 10.
 
 ### Spoken announcements (TTS)
 
@@ -677,7 +936,7 @@ database inspection.
 | `history` | Audit events, including references to rows that may later be deleted. | `sensor.vh_inventory_history` |
 | `sqlite_sequence` | SQLite internal AUTOINCREMENT counters, not an application table. | Not published. |
 
-The eight application tables contain 43 columns. All application `id` columns
+The eight application tables contain 44 columns. All application `id` columns
 are `INTEGER PRIMARY KEY AUTOINCREMENT`. Other columns allow NULL unless marked
 `NOT NULL` below or conditionally required by the shopping-list triggers.
 
@@ -717,6 +976,14 @@ are `INTEGER PRIMARY KEY AUTOINCREMENT`. Other columns allow NULL unless marked
 | `auto_add_quantity` | INTEGER | NOT NULL, default 1. |
 | `category_id` | INTEGER | Nullable reference to `categories.id`. |
 | `store_id` | INTEGER | Nullable reference to `stores.id`. |
+| `almost_out` | INTEGER | NOT NULL, default 0, CHECK 0 or 1. One pending consumption per product, managed by Keuken Touchscreen only. |
+
+`almost_out=1` means the current package was already deducted while nearly empty.
+The next touchscreen `Use` action (**Verbruikt** on Scannen) clears it without another deduction.
+**Toevoegen** retains it while adding stock normally. The flag is not a physical
+package count and is shared across the product's stock locations. Main-dashboard
+and ESPHome operations retain their existing behavior and do not honor this flag.
+See [Almost out](TOUCHSCREEN.md#almost-out--bijna-op) for the complete workflow.
 
 ### stock
 
